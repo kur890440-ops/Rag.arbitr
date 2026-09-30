@@ -1,0 +1,354 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>rag.арбитр · Day 21</title>
+<style>body{font:16px system-ui;margin:2rem;background:#f6f7fb;color:#17243b}pre{white-space:pre-wrap;overflow-wrap:anywhere}table{width:100%;table-layout:fixed}td{vertical-align:top;background:white;padding:1rem}article{border-bottom:1px solid #ccc}summary{cursor:pointer}th{text-align:left}</style>
+<h1>rag.арбитр · DAY 21 · DOCUMENT INDEXING</h1>
+<p>PARTIAL</p>
+<h2>CORPUS</h2><pre>{
+  &quot;corpus_id&quot;: &quot;frozen-v1-08abbaa379ec0636&quot;,
+  &quot;name&quot;: &quot;FROZEN CORPUS V1&quot;,
+  &quot;documents&quot;: [
+    {
+      &quot;source_path&quot;: &quot;C:\\TEMP\\RAG.Арбитр\\data\\reliability-C\\corpus\\three-pages.pdf&quot;,
+      &quot;file_name&quot;: &quot;three-pages.pdf&quot;,
+      &quot;content_hash&quot;: &quot;f38de2f96e46d9fa1d7f0adbd1a36fca35031880364b91fc1cc0aa7f5471e496&quot;,
+      &quot;document_id&quot;: &quot;c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd&quot;,
+      &quot;page_count&quot;: 3,
+      &quot;status&quot;: &quot;PARTIAL&quot;,
+      &quot;failed_pages&quot;: [
+        3
+      ]
+    }
+  ],
+  &quot;page_count&quot;: 3,
+  &quot;corpus_hash&quot;: &quot;08abbaa379ec0636e3eb21d2bec0692904c72d88cf468fd4784d9b5798c62224&quot;,
+  &quot;created_at&quot;: &quot;2026-09-29T13:21:06.530337+00:00&quot;
+}</pre>
+<h2>EMBEDDING</h2><pre>{
+  &quot;model&quot;: &quot;BAAI/bge-m3&quot;,
+  &quot;revision&quot;: &quot;5617a9f61b028005a4858fdac845db406aefb181&quot;,
+  &quot;normalization&quot;: &quot;L2&quot;,
+  &quot;library&quot;: &quot;6.1.0&quot;,
+  &quot;dimension&quot;: 1024,
+  &quot;device&quot;: &quot;cpu&quot;,
+  &quot;max_seq_length&quot;: 8192
+}</pre>
+<h2>DOCUMENT RECOGNITION</h2><pre>{
+  &quot;backend&quot;: &quot;qwen3_vl&quot;,
+  &quot;processed_pages&quot;: 3,
+  &quot;reused_pages&quot;: 0,
+  &quot;recognition_created&quot;: 3,
+  &quot;recognition_reused&quot;: 0,
+  &quot;cache_hits&quot;: 0,
+  &quot;cache_misses&quot;: 3,
+  &quot;identity&quot;: {
+    &quot;provider&quot;: &quot;qwen3_vl&quot;,
+    &quot;model&quot;: &quot;hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M&quot;,
+    &quot;model_version&quot;: &quot;2d85a295dc86a4a69366dd6eb2bde711146791c0aa68f2fb6c63d2d6cabad977&quot;,
+    &quot;runtime&quot;: &quot;ollama&quot;,
+    &quot;runtime_version&quot;: &quot;0.34.4&quot;,
+    &quot;quantization&quot;: &quot;Q4_K_M&quot;,
+    &quot;settings&quot;: {
+      &quot;provider&quot;: &quot;qwen3_vl&quot;,
+      &quot;runtime&quot;: &quot;ollama&quot;,
+      &quot;endpoint&quot;: &quot;http://127.0.0.1:11434&quot;,
+      &quot;model&quot;: &quot;hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M&quot;,
+      &quot;device&quot;: &quot;auto&quot;,
+      &quot;quantization&quot;: &quot;Q4_K_M&quot;,
+      &quot;max_image_resolution&quot;: 1280,
+      &quot;max_generation_tokens&quot;: 8192,
+      &quot;context_tokens&quot;: 16384,
+      &quot;timeout&quot;: 180.0,
+      &quot;temperature&quot;: 0.0,
+      &quot;seed&quot;: 42,
+      &quot;repeat_penalty&quot;: 1.1,
+      &quot;repeat_last_n&quot;: 1024,
+      &quot;keep_alive&quot;: &quot;5m&quot;,
+      &quot;language_hints&quot;: [
+        &quot;ru&quot;,
+        &quot;en&quot;
+      ]
+    },
+    &quot;prompt_hash&quot;: &quot;f932e4106b07e904db2571a5af7247e73e772436dd82332e18307cc6dfd7d219&quot;,
+    &quot;parser&quot;: &quot;2.130.0&quot;,
+    &quot;core&quot;: &quot;2.99.0&quot;,
+    &quot;normalizer&quot;: &quot;recognition-3&quot;
+  },
+  &quot;provider&quot;: &quot;qwen3_vl&quot;,
+  &quot;model&quot;: &quot;hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M&quot;,
+  &quot;runtime&quot;: &quot;ollama&quot;,
+  &quot;device&quot;: &quot;replay&quot;,
+  &quot;quantization&quot;: &quot;Q4_K_M&quot;,
+  &quot;runtime_status&quot;: {
+    &quot;effective_device&quot;: &quot;replay&quot;
+  },
+  &quot;reliability&quot;: {
+    &quot;qwen_success&quot;: 2,
+    &quot;qwen_retry_success&quot;: 0,
+    &quot;qwen_fragment_success&quot;: 0,
+    &quot;classic_fallback&quot;: 0,
+    &quot;failed&quot;: 1,
+    &quot;cache_reused&quot;: 0,
+    &quot;order_repaired&quot;: 0,
+    &quot;order_uncertain&quot;: 0,
+    &quot;token_recovered&quot;: 0,
+    &quot;documents_success&quot;: 0,
+    &quot;documents_partial&quot;: 1,
+    &quot;documents_failed&quot;: 0,
+    &quot;pages_total&quot;: 3,
+    &quot;documents_total&quot;: 1
+  },
+  &quot;document_stats&quot;: [
+    {
+      &quot;document_id&quot;: &quot;c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd&quot;,
+      &quot;name&quot;: &quot;three-pages.pdf&quot;,
+      &quot;pages_total&quot;: 3,
+      &quot;qwen_success&quot;: 2,
+      &quot;qwen_retry_success&quot;: 0,
+      &quot;qwen_fragment_success&quot;: 0,
+      &quot;classic_fallback&quot;: 0,
+      &quot;failed&quot;: 1,
+      &quot;status&quot;: &quot;PARTIAL&quot;
+    }
+  ],
+  &quot;errors&quot;: [
+    {
+      &quot;document&quot;: &quot;data\\reliability-C\\corpus\\three-pages.pdf&quot;,
+      &quot;page&quot;: 3,
+      &quot;stage&quot;: &quot;recognition&quot;,
+      &quot;error&quot;: &quot;Duplicate reading order across blocks/tables&quot;
+    }
+  ],
+  &quot;duration&quot;: 0.6720285000046715,
+  &quot;total_recognition_time&quot;: 34.83595910004806,
+  &quot;average_sec_per_page&quot;: 11.611986366682686,
+  &quot;min_sec_per_page&quot;: 9.85565379995387,
+  &quot;max_sec_per_page&quot;: 15.065397900063545
+}</pre>
+<h2>Recognition Reliability</h2><pre>{
+  &quot;qwen_success&quot;: 2,
+  &quot;qwen_retry_success&quot;: 0,
+  &quot;qwen_fragment_success&quot;: 0,
+  &quot;classic_fallback&quot;: 0,
+  &quot;failed&quot;: 1,
+  &quot;cache_reused&quot;: 0,
+  &quot;order_repaired&quot;: 0,
+  &quot;order_uncertain&quot;: 0,
+  &quot;token_recovered&quot;: 0,
+  &quot;documents_success&quot;: 0,
+  &quot;documents_partial&quot;: 1,
+  &quot;documents_failed&quot;: 0,
+  &quot;pages_total&quot;: 3,
+  &quot;documents_total&quot;: 1
+}</pre><pre>[
+  {
+    &quot;document_id&quot;: &quot;c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd&quot;,
+    &quot;name&quot;: &quot;three-pages.pdf&quot;,
+    &quot;pages_total&quot;: 3,
+    &quot;qwen_success&quot;: 2,
+    &quot;qwen_retry_success&quot;: 0,
+    &quot;qwen_fragment_success&quot;: 0,
+    &quot;classic_fallback&quot;: 0,
+    &quot;failed&quot;: 1,
+    &quot;status&quot;: &quot;PARTIAL&quot;
+  }
+]</pre>
+<p>Вход recognition — изображения страниц; один результат для обеих стратегий. Dense BGE-M3, L2 normalization документов и запросов, Cosine. SQLite — canonical text; Qdrant — vectors + provenance.</p>
+<table><tr><th>FIXED</th><th>STRUCTURE</th></tr><tr>
+<td><pre>{
+  &quot;run_id&quot;: &quot;2134d2aa-b1eb-43b0-8d95-a73330336b68&quot;,
+  &quot;corpus_id&quot;: &quot;frozen-v1-08abbaa379ec0636&quot;,
+  &quot;corpus_hash&quot;: &quot;08abbaa379ec0636e3eb21d2bec0692904c72d88cf468fd4784d9b5798c62224&quot;,
+  &quot;normalized_hash&quot;: &quot;7f4d0ed122cbe11a1b853fb0565d691b99600c3247fcc40ed309e0b729b353c8&quot;,
+  &quot;strategy&quot;: &quot;fixed&quot;,
+  &quot;strategy_version&quot;: &quot;1&quot;,
+  &quot;settings&quot;: [
+    1000,
+    125,
+    1000
+  ],
+  &quot;recognition&quot;: {
+    &quot;provider&quot;: &quot;qwen3_vl&quot;,
+    &quot;model&quot;: &quot;hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M&quot;,
+    &quot;model_version&quot;: &quot;2d85a295dc86a4a69366dd6eb2bde711146791c0aa68f2fb6c63d2d6cabad977&quot;,
+    &quot;runtime&quot;: &quot;ollama&quot;,
+    &quot;runtime_version&quot;: &quot;0.34.4&quot;,
+    &quot;quantization&quot;: &quot;Q4_K_M&quot;,
+    &quot;settings&quot;: {
+      &quot;provider&quot;: &quot;qwen3_vl&quot;,
+      &quot;runtime&quot;: &quot;ollama&quot;,
+      &quot;endpoint&quot;: &quot;http://127.0.0.1:11434&quot;,
+      &quot;model&quot;: &quot;hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M&quot;,
+      &quot;device&quot;: &quot;auto&quot;,
+      &quot;quantization&quot;: &quot;Q4_K_M&quot;,
+      &quot;max_image_resolution&quot;: 1280,
+      &quot;max_generation_tokens&quot;: 8192,
+      &quot;context_tokens&quot;: 16384,
+      &quot;timeout&quot;: 180.0,
+      &quot;temperature&quot;: 0.0,
+      &quot;seed&quot;: 42,
+      &quot;repeat_penalty&quot;: 1.1,
+      &quot;repeat_last_n&quot;: 1024,
+      &quot;keep_alive&quot;: &quot;5m&quot;,
+      &quot;language_hints&quot;: [
+        &quot;ru&quot;,
+        &quot;en&quot;
+      ]
+    },
+    &quot;prompt_hash&quot;: &quot;f932e4106b07e904db2571a5af7247e73e772436dd82332e18307cc6dfd7d219&quot;,
+    &quot;parser&quot;: &quot;2.130.0&quot;,
+    &quot;core&quot;: &quot;2.99.0&quot;,
+    &quot;normalizer&quot;: &quot;recognition-3&quot;
+  },
+  &quot;embedding_model&quot;: &quot;BAAI/bge-m3&quot;,
+  &quot;embedding&quot;: {
+    &quot;model&quot;: &quot;BAAI/bge-m3&quot;,
+    &quot;revision&quot;: &quot;5617a9f61b028005a4858fdac845db406aefb181&quot;,
+    &quot;normalization&quot;: &quot;L2&quot;,
+    &quot;library&quot;: &quot;6.1.0&quot;,
+    &quot;dimension&quot;: 1024,
+    &quot;device&quot;: &quot;cpu&quot;,
+    &quot;max_seq_length&quot;: 8192
+  },
+  &quot;dimension&quot;: 1024,
+  &quot;similarity&quot;: &quot;Cosine&quot;,
+  &quot;collection&quot;: &quot;day21_fixed_659d7923c8c8457f476e&quot;,
+  &quot;started_at&quot;: &quot;2026-09-29T13:23:36.366242+00:00&quot;,
+  &quot;finished_at&quot;: &quot;2026-09-29T13:23:38.879741+00:00&quot;,
+  &quot;status&quot;: &quot;PARTIAL&quot;,
+  &quot;documents&quot;: 1,
+  &quot;pages&quot;: 2,
+  &quot;chunks&quot;: 1,
+  &quot;document_ids&quot;: [
+    &quot;c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd&quot;
+  ],
+  &quot;embeddings_created&quot;: 1,
+  &quot;embeddings_reused&quot;: 0,
+  &quot;errors&quot;: [
+    {
+      &quot;document&quot;: &quot;data\\reliability-C\\corpus\\three-pages.pdf&quot;,
+      &quot;page&quot;: 3,
+      &quot;stage&quot;: &quot;recognition&quot;,
+      &quot;error&quot;: &quot;Duplicate reading order across blocks/tables&quot;
+    }
+  ],
+  &quot;coverage&quot;: {
+    &quot;c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd&quot;: {
+      &quot;source_characters&quot;: 2956,
+      &quot;source_tokens&quot;: 842,
+      &quot;chunked_unique_characters&quot;: 2956,
+      &quot;unique_coverage&quot;: 1.0,
+      &quot;chunked_unique_source_tokens&quot;: 842,
+      &quot;overlap_characters&quot;: 0,
+      &quot;chunk_tokens&quot;: 842
+    }
+  },
+  &quot;chunk_ids&quot;: [
+    &quot;fc8d6ddc81ee347799bcaceba76fbf8aaba036a3a6338a9b518ccc3f1ea6b048&quot;
+  ],
+  &quot;duration&quot;: 2.5077229000162333,
+  &quot;avg_tokens&quot;: 842,
+  &quot;median_tokens&quot;: 842,
+  &quot;min_tokens&quot;: 842,
+  &quot;max_tokens&quot;: 842
+}</pre></td>
+<td><pre>{
+  &quot;run_id&quot;: &quot;460dae91-4adf-4782-8a57-94bb84697cf6&quot;,
+  &quot;corpus_id&quot;: &quot;frozen-v1-08abbaa379ec0636&quot;,
+  &quot;corpus_hash&quot;: &quot;08abbaa379ec0636e3eb21d2bec0692904c72d88cf468fd4784d9b5798c62224&quot;,
+  &quot;normalized_hash&quot;: &quot;7f4d0ed122cbe11a1b853fb0565d691b99600c3247fcc40ed309e0b729b353c8&quot;,
+  &quot;strategy&quot;: &quot;structure&quot;,
+  &quot;strategy_version&quot;: &quot;1&quot;,
+  &quot;settings&quot;: [
+    1000
+  ],
+  &quot;recognition&quot;: {
+    &quot;provider&quot;: &quot;qwen3_vl&quot;,
+    &quot;model&quot;: &quot;hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M&quot;,
+    &quot;model_version&quot;: &quot;2d85a295dc86a4a69366dd6eb2bde711146791c0aa68f2fb6c63d2d6cabad977&quot;,
+    &quot;runtime&quot;: &quot;ollama&quot;,
+    &quot;runtime_version&quot;: &quot;0.34.4&quot;,
+    &quot;quantization&quot;: &quot;Q4_K_M&quot;,
+    &quot;settings&quot;: {
+      &quot;provider&quot;: &quot;qwen3_vl&quot;,
+      &quot;runtime&quot;: &quot;ollama&quot;,
+      &quot;endpoint&quot;: &quot;http://127.0.0.1:11434&quot;,
+      &quot;model&quot;: &quot;hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M&quot;,
+      &quot;device&quot;: &quot;auto&quot;,
+      &quot;quantization&quot;: &quot;Q4_K_M&quot;,
+      &quot;max_image_resolution&quot;: 1280,
+      &quot;max_generation_tokens&quot;: 8192,
+      &quot;context_tokens&quot;: 16384,
+      &quot;timeout&quot;: 180.0,
+      &quot;temperature&quot;: 0.0,
+      &quot;seed&quot;: 42,
+      &quot;repeat_penalty&quot;: 1.1,
+      &quot;repeat_last_n&quot;: 1024,
+      &quot;keep_alive&quot;: &quot;5m&quot;,
+      &quot;language_hints&quot;: [
+        &quot;ru&quot;,
+        &quot;en&quot;
+      ]
+    },
+    &quot;prompt_hash&quot;: &quot;f932e4106b07e904db2571a5af7247e73e772436dd82332e18307cc6dfd7d219&quot;,
+    &quot;parser&quot;: &quot;2.130.0&quot;,
+    &quot;core&quot;: &quot;2.99.0&quot;,
+    &quot;normalizer&quot;: &quot;recognition-3&quot;
+  },
+  &quot;embedding_model&quot;: &quot;BAAI/bge-m3&quot;,
+  &quot;embedding&quot;: {
+    &quot;model&quot;: &quot;BAAI/bge-m3&quot;,
+    &quot;revision&quot;: &quot;5617a9f61b028005a4858fdac845db406aefb181&quot;,
+    &quot;normalization&quot;: &quot;L2&quot;,
+    &quot;library&quot;: &quot;6.1.0&quot;,
+    &quot;dimension&quot;: 1024,
+    &quot;device&quot;: &quot;cpu&quot;,
+    &quot;max_seq_length&quot;: 8192
+  },
+  &quot;dimension&quot;: 1024,
+  &quot;similarity&quot;: &quot;Cosine&quot;,
+  &quot;collection&quot;: &quot;day21_structure_e2a10eff29e5ea0bf57f&quot;,
+  &quot;started_at&quot;: &quot;2026-09-29T13:23:38.886647+00:00&quot;,
+  &quot;finished_at&quot;: &quot;2026-09-29T13:23:41.761842+00:00&quot;,
+  &quot;status&quot;: &quot;PARTIAL&quot;,
+  &quot;documents&quot;: 1,
+  &quot;pages&quot;: 2,
+  &quot;chunks&quot;: 3,
+  &quot;document_ids&quot;: [
+    &quot;c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd&quot;
+  ],
+  &quot;embeddings_created&quot;: 3,
+  &quot;embeddings_reused&quot;: 0,
+  &quot;errors&quot;: [
+    {
+      &quot;document&quot;: &quot;data\\reliability-C\\corpus\\three-pages.pdf&quot;,
+      &quot;page&quot;: 3,
+      &quot;stage&quot;: &quot;recognition&quot;,
+      &quot;error&quot;: &quot;Duplicate reading order across blocks/tables&quot;
+    }
+  ],
+  &quot;coverage&quot;: {
+    &quot;c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd&quot;: {
+      &quot;source_characters&quot;: 2956,
+      &quot;source_tokens&quot;: 842,
+      &quot;chunked_unique_characters&quot;: 2956,
+      &quot;unique_coverage&quot;: 1.0,
+      &quot;chunked_unique_source_tokens&quot;: 842,
+      &quot;overlap_characters&quot;: 0,
+      &quot;chunk_tokens&quot;: 842
+    }
+  },
+  &quot;chunk_ids&quot;: [
+    &quot;3b366aac730320189add2ed4e3ad9d02f48acf0fa9c30e8343d7392e62e5abb9&quot;,
+    &quot;de901d7e4ca4f8e549639ba96492cac8fe2acbc042d3aef06234c857b96c8708&quot;,
+    &quot;031ebdc840315ddae856f36fc0a06c6e6b23f2ba5be32f14ccbbae7d14343e08&quot;
+  ],
+  &quot;duration&quot;: 2.8702764000045136,
+  &quot;avg_tokens&quot;: 280.6666666666667,
+  &quot;median_tokens&quot;: 373,
+  &quot;min_tokens&quot;: 24,
+  &quot;max_tokens&quot;: 445
+}</pre></td>
+</tr></table><h2>EVALUATION</h2>
+<pre>{
+  &quot;status&quot;: &quot;NOT_RUN&quot;
+}</pre>
+</html>

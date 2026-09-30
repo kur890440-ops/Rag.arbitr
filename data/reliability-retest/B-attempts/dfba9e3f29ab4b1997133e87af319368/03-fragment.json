@@ -1,0 +1,181 @@
+{
+  "attempt": 3,
+  "kind": "fragment",
+  "page_number": 3,
+  "fragment_id": "0",
+  "coordinates": [
+    0,
+    0,
+    2339,
+    860
+  ],
+  "provider": "qwen3_vl",
+  "status": "SUCCESS",
+  "duration_ms": 7718.483600066975,
+  "raw_output_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\B-attempts\\dfba9e3f29ab4b1997133e87af319368\\03-fragment.raw",
+  "configured_max_output": 8192,
+  "configured_context": 16384,
+  "effective_device": "gpu",
+  "size_vram": 3478074162,
+  "model_memory_bytes": 3478074162,
+  "runtime_model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+  "image_width": 1280,
+  "image_height": 471,
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 7667839700,
+  "load_duration": 4707900,
+  "eval_count": 721,
+  "prompt_eval_count": 1274,
+  "normalization": [],
+  "reading_order_status": "OK",
+  "json_repaired": false,
+  "normalized": {
+    "provider": "qwen3_vl",
+    "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+    "model_version": "2d85a295dc86a4a69366dd6eb2bde711146791c0aa68f2fb6c63d2d6cabad977",
+    "runtime": "ollama",
+    "device": "gpu",
+    "quantization": "Q4_K_M",
+    "page_number": 3,
+    "normalized_text": "24 июня 2026 года\n\n0040/17-3КЛ от 16.06.2017; № 0041/17-3КЛ от 16.06.2017; договор залога товара в обороте №0039/17-ЗТО от 16.06.2016\n\nсуда Республики Татарстан по делу № А65-37758/2017 от 04.05.2018\n\n141,44 руб., таким образом размер требования 110 867 106,15 руб.\n\n01.06.2022 Стручалина А.В.\n\nТаб. 10, п. 4 произведено погашение на сумму 2 829 488,94 руб., таким образом размер требования 108 037 617,21 руб.\n\n04.09.2023 Стручалина А.В.\n\nВ связи с реализацией предмета залога требование перенесено в табл.12 части 2 раздела 3 реестра пунктом 346\n\n04.09.2023 Стручалина А.В.\n\nДоговоры об открытин кредитной линии № 0039/17-3КЛ от 16.06.2017; № 0040/17-3КЛ от 16.06.2017; № 0041/17-3КЛ от 16.06.2017;\n\n16.06.2016\n\n5 825 420.26\n\nОпределение Арбитражного суда Республики\n\nТаб. 10, п. 1 произведено погашение на сумму 5 825 420,26 руб., таким образом",
+    "blocks": [
+      {
+        "type": "title",
+        "text": "24 июня 2026 года",
+        "order": 0,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "0040/17-3КЛ от 16.06.2017; № 0041/17-3КЛ от 16.06.2017; договор залога товара в обороте №0039/17-ЗТО от 16.06.2016",
+        "order": 1,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "суда Республики Татарстан по делу № А65-37758/2017 от 04.05.2018",
+        "order": 2,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "141,44 руб., таким образом размер требования 110 867 106,15 руб.",
+        "order": 3,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "01.06.2022 Стручалина А.В.",
+        "order": 4,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "Таб. 10, п. 4 произведено погашение на сумму 2 829 488,94 руб., таким образом размер требования 108 037 617,21 руб.",
+        "order": 5,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "04.09.2023 Стручалина А.В.",
+        "order": 6,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "В связи с реализацией предмета залога требование перенесено в табл.12 части 2 раздела 3 реестра пунктом 346",
+        "order": 7,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "04.09.2023 Стручалина А.В.",
+        "order": 8,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "Договоры об открытин кредитной линии № 0039/17-3КЛ от 16.06.2017; № 0040/17-3КЛ от 16.06.2017; № 0041/17-3КЛ от 16.06.2017;",
+        "order": 9,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "16.06.2016",
+        "order": 10,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "5 825 420.26",
+        "order": 11,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "Определение Арбитражного суда Республики",
+        "order": 12,
+        "bbox": null,
+        "uncertain": false
+      },
+      {
+        "type": "paragraph",
+        "text": "Таб. 10, п. 1 произведено погашение на сумму 5 825 420,26 руб., таким образом",
+        "order": 13,
+        "bbox": null,
+        "uncertain": false
+      }
+    ],
+    "tables": [],
+    "reading_order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+    ],
+    "status": "SUCCESS",
+    "duration_ms": 7718.483600066975,
+    "diagnostics": {
+      "effective_device": "gpu",
+      "size_vram": 3478074162,
+      "model_memory_bytes": 3478074162,
+      "runtime_model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+      "image_width": 1280,
+      "image_height": 471,
+      "configured_max_output": 8192,
+      "configured_context": 16384,
+      "done": true,
+      "done_reason": "stop",
+      "total_duration": 7667839700,
+      "load_duration": 4707900,
+      "eval_count": 721,
+      "prompt_eval_count": 1274,
+      "normalization": [],
+      "reading_order_status": "OK",
+      "json_repaired": false
+    }
+  }
+}

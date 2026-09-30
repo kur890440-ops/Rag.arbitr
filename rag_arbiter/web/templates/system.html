@@ -1,0 +1,6 @@
+<div class="section-head"><h2>Система</h2><button class="text-button" hx-get="/ui/system" hx-target="#system">Обновить ↻</button></div>
+<div class="system-grid"><div><small>GPU</small><strong>{{ status.gpu.nvidia_smi or 'Не обнаружена' }}</strong><span>Torch CUDA: {{'да' if status.torch_cuda_available else 'нет'}} · VLM: {{ status.placement.effective_device }}</span></div>
+<div><small>RECOGNITION</small><strong>{{status.recognition_provider}}</strong><span>{{status.recognition_model}}</span></div>
+<div><small>RUNTIME</small><strong>{{status.runtime}} · {{status.runtime_status.version or status.runtime_status.status}}</strong><span>Модель: {{'установлена' if status.model_installed else 'не подтверждена'}}</span></div>
+<div><small>EMBEDDINGS</small><strong>{{status.embedding_model}}</strong><span>Device: {{status.embedding_device}}</span></div>
+<div><small>ХРАНИЛИЩЕ</small><strong>Qdrant {{status.qdrant.version}} · Local</strong><span>SQLite: {{status.sqlite.status}} · schema {{status.sqlite.schema_version}} / Docling {{status.docling}}</span></div></div>

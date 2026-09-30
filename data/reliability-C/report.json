@@ -1,0 +1,412 @@
+{
+  "status": "PARTIAL",
+  "corpus": {
+    "corpus_id": "frozen-v1-08abbaa379ec0636",
+    "name": "FROZEN CORPUS V1",
+    "documents": [
+      {
+        "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-C\\corpus\\three-pages.pdf",
+        "file_name": "three-pages.pdf",
+        "content_hash": "f38de2f96e46d9fa1d7f0adbd1a36fca35031880364b91fc1cc0aa7f5471e496",
+        "document_id": "c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd",
+        "page_count": 3,
+        "status": "PARTIAL",
+        "failed_pages": [
+          3
+        ]
+      }
+    ],
+    "page_count": 3,
+    "corpus_hash": "08abbaa379ec0636e3eb21d2bec0692904c72d88cf468fd4784d9b5798c62224",
+    "created_at": "2026-09-29T13:21:06.530337+00:00"
+  },
+  "ocr": {
+    "backend": "qwen3_vl",
+    "processed_pages": 3,
+    "reused_pages": 0,
+    "recognition_created": 3,
+    "recognition_reused": 0,
+    "cache_hits": 0,
+    "cache_misses": 3,
+    "identity": {
+      "provider": "qwen3_vl",
+      "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+      "model_version": "2d85a295dc86a4a69366dd6eb2bde711146791c0aa68f2fb6c63d2d6cabad977",
+      "runtime": "ollama",
+      "runtime_version": "0.34.4",
+      "quantization": "Q4_K_M",
+      "settings": {
+        "provider": "qwen3_vl",
+        "runtime": "ollama",
+        "endpoint": "http://127.0.0.1:11434",
+        "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+        "device": "auto",
+        "quantization": "Q4_K_M",
+        "max_image_resolution": 1280,
+        "max_generation_tokens": 8192,
+        "context_tokens": 16384,
+        "timeout": 180.0,
+        "temperature": 0.0,
+        "seed": 42,
+        "repeat_penalty": 1.1,
+        "repeat_last_n": 1024,
+        "keep_alive": "5m",
+        "language_hints": [
+          "ru",
+          "en"
+        ]
+      },
+      "prompt_hash": "f932e4106b07e904db2571a5af7247e73e772436dd82332e18307cc6dfd7d219",
+      "parser": "2.130.0",
+      "core": "2.99.0",
+      "normalizer": "recognition-3"
+    },
+    "provider": "qwen3_vl",
+    "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+    "runtime": "ollama",
+    "device": "replay",
+    "quantization": "Q4_K_M",
+    "runtime_status": {
+      "effective_device": "replay"
+    },
+    "reliability": {
+      "qwen_success": 2,
+      "qwen_retry_success": 0,
+      "qwen_fragment_success": 0,
+      "classic_fallback": 0,
+      "failed": 1,
+      "cache_reused": 0,
+      "order_repaired": 0,
+      "order_uncertain": 0,
+      "token_recovered": 0,
+      "documents_success": 0,
+      "documents_partial": 1,
+      "documents_failed": 0,
+      "pages_total": 3,
+      "documents_total": 1
+    },
+    "document_stats": [
+      {
+        "document_id": "c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd",
+        "name": "three-pages.pdf",
+        "pages_total": 3,
+        "qwen_success": 2,
+        "qwen_retry_success": 0,
+        "qwen_fragment_success": 0,
+        "classic_fallback": 0,
+        "failed": 1,
+        "status": "PARTIAL"
+      }
+    ],
+    "errors": [
+      {
+        "document": "data\\reliability-C\\corpus\\three-pages.pdf",
+        "page": 3,
+        "stage": "recognition",
+        "error": "Duplicate reading order across blocks/tables"
+      }
+    ],
+    "duration": 0.6720285000046715,
+    "total_recognition_time": 34.83595910004806,
+    "average_sec_per_page": 11.611986366682686,
+    "min_sec_per_page": 9.85565379995387,
+    "max_sec_per_page": 15.065397900063545
+  },
+  "recognition": {
+    "backend": "qwen3_vl",
+    "processed_pages": 3,
+    "reused_pages": 0,
+    "recognition_created": 3,
+    "recognition_reused": 0,
+    "cache_hits": 0,
+    "cache_misses": 3,
+    "identity": {
+      "provider": "qwen3_vl",
+      "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+      "model_version": "2d85a295dc86a4a69366dd6eb2bde711146791c0aa68f2fb6c63d2d6cabad977",
+      "runtime": "ollama",
+      "runtime_version": "0.34.4",
+      "quantization": "Q4_K_M",
+      "settings": {
+        "provider": "qwen3_vl",
+        "runtime": "ollama",
+        "endpoint": "http://127.0.0.1:11434",
+        "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+        "device": "auto",
+        "quantization": "Q4_K_M",
+        "max_image_resolution": 1280,
+        "max_generation_tokens": 8192,
+        "context_tokens": 16384,
+        "timeout": 180.0,
+        "temperature": 0.0,
+        "seed": 42,
+        "repeat_penalty": 1.1,
+        "repeat_last_n": 1024,
+        "keep_alive": "5m",
+        "language_hints": [
+          "ru",
+          "en"
+        ]
+      },
+      "prompt_hash": "f932e4106b07e904db2571a5af7247e73e772436dd82332e18307cc6dfd7d219",
+      "parser": "2.130.0",
+      "core": "2.99.0",
+      "normalizer": "recognition-3"
+    },
+    "provider": "qwen3_vl",
+    "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+    "runtime": "ollama",
+    "device": "replay",
+    "quantization": "Q4_K_M",
+    "runtime_status": {
+      "effective_device": "replay"
+    },
+    "reliability": {
+      "qwen_success": 2,
+      "qwen_retry_success": 0,
+      "qwen_fragment_success": 0,
+      "classic_fallback": 0,
+      "failed": 1,
+      "cache_reused": 0,
+      "order_repaired": 0,
+      "order_uncertain": 0,
+      "token_recovered": 0,
+      "documents_success": 0,
+      "documents_partial": 1,
+      "documents_failed": 0,
+      "pages_total": 3,
+      "documents_total": 1
+    },
+    "document_stats": [
+      {
+        "document_id": "c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd",
+        "name": "three-pages.pdf",
+        "pages_total": 3,
+        "qwen_success": 2,
+        "qwen_retry_success": 0,
+        "qwen_fragment_success": 0,
+        "classic_fallback": 0,
+        "failed": 1,
+        "status": "PARTIAL"
+      }
+    ],
+    "errors": [
+      {
+        "document": "data\\reliability-C\\corpus\\three-pages.pdf",
+        "page": 3,
+        "stage": "recognition",
+        "error": "Duplicate reading order across blocks/tables"
+      }
+    ],
+    "duration": 0.6720285000046715,
+    "total_recognition_time": 34.83595910004806,
+    "average_sec_per_page": 11.611986366682686,
+    "min_sec_per_page": 9.85565379995387,
+    "max_sec_per_page": 15.065397900063545
+  },
+  "indexes": {
+    "fixed": {
+      "run_id": "2134d2aa-b1eb-43b0-8d95-a73330336b68",
+      "corpus_id": "frozen-v1-08abbaa379ec0636",
+      "corpus_hash": "08abbaa379ec0636e3eb21d2bec0692904c72d88cf468fd4784d9b5798c62224",
+      "normalized_hash": "7f4d0ed122cbe11a1b853fb0565d691b99600c3247fcc40ed309e0b729b353c8",
+      "strategy": "fixed",
+      "strategy_version": "1",
+      "settings": [
+        1000,
+        125,
+        1000
+      ],
+      "recognition": {
+        "provider": "qwen3_vl",
+        "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+        "model_version": "2d85a295dc86a4a69366dd6eb2bde711146791c0aa68f2fb6c63d2d6cabad977",
+        "runtime": "ollama",
+        "runtime_version": "0.34.4",
+        "quantization": "Q4_K_M",
+        "settings": {
+          "provider": "qwen3_vl",
+          "runtime": "ollama",
+          "endpoint": "http://127.0.0.1:11434",
+          "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+          "device": "auto",
+          "quantization": "Q4_K_M",
+          "max_image_resolution": 1280,
+          "max_generation_tokens": 8192,
+          "context_tokens": 16384,
+          "timeout": 180.0,
+          "temperature": 0.0,
+          "seed": 42,
+          "repeat_penalty": 1.1,
+          "repeat_last_n": 1024,
+          "keep_alive": "5m",
+          "language_hints": [
+            "ru",
+            "en"
+          ]
+        },
+        "prompt_hash": "f932e4106b07e904db2571a5af7247e73e772436dd82332e18307cc6dfd7d219",
+        "parser": "2.130.0",
+        "core": "2.99.0",
+        "normalizer": "recognition-3"
+      },
+      "embedding_model": "BAAI/bge-m3",
+      "embedding": {
+        "model": "BAAI/bge-m3",
+        "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+        "normalization": "L2",
+        "library": "6.1.0",
+        "dimension": 1024,
+        "device": "cpu",
+        "max_seq_length": 8192
+      },
+      "dimension": 1024,
+      "similarity": "Cosine",
+      "collection": "day21_fixed_659d7923c8c8457f476e",
+      "started_at": "2026-09-29T13:23:36.366242+00:00",
+      "finished_at": "2026-09-29T13:23:38.879741+00:00",
+      "status": "PARTIAL",
+      "documents": 1,
+      "pages": 2,
+      "chunks": 1,
+      "document_ids": [
+        "c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd"
+      ],
+      "embeddings_created": 1,
+      "embeddings_reused": 0,
+      "errors": [
+        {
+          "document": "data\\reliability-C\\corpus\\three-pages.pdf",
+          "page": 3,
+          "stage": "recognition",
+          "error": "Duplicate reading order across blocks/tables"
+        }
+      ],
+      "coverage": {
+        "c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd": {
+          "source_characters": 2956,
+          "source_tokens": 842,
+          "chunked_unique_characters": 2956,
+          "unique_coverage": 1.0,
+          "chunked_unique_source_tokens": 842,
+          "overlap_characters": 0,
+          "chunk_tokens": 842
+        }
+      },
+      "chunk_ids": [
+        "fc8d6ddc81ee347799bcaceba76fbf8aaba036a3a6338a9b518ccc3f1ea6b048"
+      ],
+      "duration": 2.5077229000162333,
+      "avg_tokens": 842,
+      "median_tokens": 842,
+      "min_tokens": 842,
+      "max_tokens": 842
+    },
+    "structure": {
+      "run_id": "460dae91-4adf-4782-8a57-94bb84697cf6",
+      "corpus_id": "frozen-v1-08abbaa379ec0636",
+      "corpus_hash": "08abbaa379ec0636e3eb21d2bec0692904c72d88cf468fd4784d9b5798c62224",
+      "normalized_hash": "7f4d0ed122cbe11a1b853fb0565d691b99600c3247fcc40ed309e0b729b353c8",
+      "strategy": "structure",
+      "strategy_version": "1",
+      "settings": [
+        1000
+      ],
+      "recognition": {
+        "provider": "qwen3_vl",
+        "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+        "model_version": "2d85a295dc86a4a69366dd6eb2bde711146791c0aa68f2fb6c63d2d6cabad977",
+        "runtime": "ollama",
+        "runtime_version": "0.34.4",
+        "quantization": "Q4_K_M",
+        "settings": {
+          "provider": "qwen3_vl",
+          "runtime": "ollama",
+          "endpoint": "http://127.0.0.1:11434",
+          "model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+          "device": "auto",
+          "quantization": "Q4_K_M",
+          "max_image_resolution": 1280,
+          "max_generation_tokens": 8192,
+          "context_tokens": 16384,
+          "timeout": 180.0,
+          "temperature": 0.0,
+          "seed": 42,
+          "repeat_penalty": 1.1,
+          "repeat_last_n": 1024,
+          "keep_alive": "5m",
+          "language_hints": [
+            "ru",
+            "en"
+          ]
+        },
+        "prompt_hash": "f932e4106b07e904db2571a5af7247e73e772436dd82332e18307cc6dfd7d219",
+        "parser": "2.130.0",
+        "core": "2.99.0",
+        "normalizer": "recognition-3"
+      },
+      "embedding_model": "BAAI/bge-m3",
+      "embedding": {
+        "model": "BAAI/bge-m3",
+        "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+        "normalization": "L2",
+        "library": "6.1.0",
+        "dimension": 1024,
+        "device": "cpu",
+        "max_seq_length": 8192
+      },
+      "dimension": 1024,
+      "similarity": "Cosine",
+      "collection": "day21_structure_e2a10eff29e5ea0bf57f",
+      "started_at": "2026-09-29T13:23:38.886647+00:00",
+      "finished_at": "2026-09-29T13:23:41.761842+00:00",
+      "status": "PARTIAL",
+      "documents": 1,
+      "pages": 2,
+      "chunks": 3,
+      "document_ids": [
+        "c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd"
+      ],
+      "embeddings_created": 3,
+      "embeddings_reused": 0,
+      "errors": [
+        {
+          "document": "data\\reliability-C\\corpus\\three-pages.pdf",
+          "page": 3,
+          "stage": "recognition",
+          "error": "Duplicate reading order across blocks/tables"
+        }
+      ],
+      "coverage": {
+        "c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd": {
+          "source_characters": 2956,
+          "source_tokens": 842,
+          "chunked_unique_characters": 2956,
+          "unique_coverage": 1.0,
+          "chunked_unique_source_tokens": 842,
+          "overlap_characters": 0,
+          "chunk_tokens": 842
+        }
+      },
+      "chunk_ids": [
+        "3b366aac730320189add2ed4e3ad9d02f48acf0fa9c30e8343d7392e62e5abb9",
+        "de901d7e4ca4f8e549639ba96492cac8fe2acbc042d3aef06234c857b96c8708",
+        "031ebdc840315ddae856f36fc0a06c6e6b23f2ba5be32f14ccbbae7d14343e08"
+      ],
+      "duration": 2.8702764000045136,
+      "avg_tokens": 280.6666666666667,
+      "median_tokens": 373,
+      "min_tokens": 24,
+      "max_tokens": 445
+    }
+  },
+  "embedding": {
+    "model": "BAAI/bge-m3",
+    "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+    "normalization": "L2",
+    "library": "6.1.0",
+    "dimension": 1024,
+    "device": "cpu",
+    "max_seq_length": 8192
+  }
+}

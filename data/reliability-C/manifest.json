@@ -1,0 +1,20 @@
+{
+  "corpus_id": "frozen-v1-08abbaa379ec0636",
+  "name": "FROZEN CORPUS V1",
+  "documents": [
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-C\\corpus\\three-pages.pdf",
+      "file_name": "three-pages.pdf",
+      "content_hash": "f38de2f96e46d9fa1d7f0adbd1a36fca35031880364b91fc1cc0aa7f5471e496",
+      "document_id": "c9fb35a9258daa359ea3d279cb448fbb8eb77585e947d805aa7a2a73dd3b0dcd",
+      "page_count": 3,
+      "status": "PARTIAL",
+      "failed_pages": [
+        3
+      ]
+    }
+  ],
+  "page_count": 3,
+  "corpus_hash": "08abbaa379ec0636e3eb21d2bec0692904c72d88cf468fd4784d9b5798c62224",
+  "created_at": "2026-09-29T13:21:06.530337+00:00"
+}

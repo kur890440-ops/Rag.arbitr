@@ -1,0 +1,189 @@
+{
+  "corpus_id": "frozen-v1-6fdf71628716e4c6",
+  "name": "FROZEN CORPUS V1",
+  "documents": [
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\00.png",
+      "file_name": "00.png",
+      "content_hash": "6f4a0e1b857040fbdd3d6542c63de3a4c9be3f9874274a2131f91b45bd999c67",
+      "document_id": "5154375b22173a8c8d0fe48e6b311c94cd6d09d14b430f1c271d54dd695428a0",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\01.png",
+      "file_name": "01.png",
+      "content_hash": "b7c7b5ca27494d07da8ed57cd3cfb7d9121e130a6781a08b3d764a9ba47c36b9",
+      "document_id": "87876d50d518d7c1390b6c937f46b1b0092c5200c4ce2d58837f455a5419bdd8",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\02.png",
+      "file_name": "02.png",
+      "content_hash": "703e400760670464f18468d693aae57b1d6879f8c77570a25c182c5b310b3bc9",
+      "document_id": "c04b3c8e308d2d09a2f7d2c9bb8c95186670a04b0eafb4111b971806f73d3c93",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\03.png",
+      "file_name": "03.png",
+      "content_hash": "01eb231afb85ffe9fe66c925ce2ccc5838b3297f7c49b4098942ff117efb1d9f",
+      "document_id": "a7d5a41b14a79c2ef8bc0396c9d6f88e2bbd685a33176cd52dfce9c6005ca692",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\04.png",
+      "file_name": "04.png",
+      "content_hash": "b9c2973013c7d8c9a461ea13adc876de61545dd7f0553fce6ff80fe41ae83a45",
+      "document_id": "d79e399456d4d0ab77e0119e5aad5e09c25e7c7074c58b9f6b620a16bf5e6538",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\05.png",
+      "file_name": "05.png",
+      "content_hash": "e3b9f2990ce6ecb9b28503bc3ad63d8e56f634d82c51ddc7d44dea7fbe5424cc",
+      "document_id": "e3f42b92732550f44f42804ff1713ea11d44e912f1dc030927745f8823f7144a",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\06.png",
+      "file_name": "06.png",
+      "content_hash": "db5cc9fd5bf25d5fcd66a3b261d4dd1e8618292799009970a930e5c48aa9cbeb",
+      "document_id": "ecf37a82fcb18b6f7d2807d4b8002902d4dd2c50a56017186548f1c58a8d262b",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\07.png",
+      "file_name": "07.png",
+      "content_hash": "e547bd9cb513dacd9ef5af2454c502305a679d7c6eeef4b9644005afc86dbaec",
+      "document_id": "05f2c7409f95b3d5a9d5e646530e04a5737d75cbd96b257cc7c469ccef79b6e3",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\08.png",
+      "file_name": "08.png",
+      "content_hash": "798b9251083553de9f6c034662c14f9658dd48d12dad67e324d6f3b3b238a001",
+      "document_id": "5e9f3f06c724891e25bd71d2fa1576434b0a0005d6edb5fed463e52166ded797",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\09.png",
+      "file_name": "09.png",
+      "content_hash": "c526104b0a989fbb892ed84c418df18b6d984541f874e7bb492c140dbfca6c1e",
+      "document_id": "5fe6fbe95d9e00d9133ac3eb9ee195ee5ca0f6ff4bd83e9fd0c59154469b5ece",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\10.png",
+      "file_name": "10.png",
+      "content_hash": "1c963675165b8ae79361dd0f84980834e415b57e821fc2077713fde679883898",
+      "document_id": "5d237539c342b11bbfeb4b830d7b72bd1f28b2e4f5660b32042b2c1d0a368289",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\11.png",
+      "file_name": "11.png",
+      "content_hash": "b467296605dd4ae9ccea426f0cc1cd6ae30f1dea856e0399cfc334085efc06a3",
+      "document_id": "895469094142955a06f518f671027c2f8e50e2457982ad8a5cc3f0d90143cee2",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\12.png",
+      "file_name": "12.png",
+      "content_hash": "354bc23c59b0afed8a2f273c6db4ffb5d1a7eb55e4b83d9be440de91fecc48ab",
+      "document_id": "227c962a1bc2409ce1b24a16de91990c1836bba7db9b94528c45a86807475797",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\13.png",
+      "file_name": "13.png",
+      "content_hash": "6ce2bfc33a22c06ad7e37d228692794d21f9cb293a05ec0d8aea59dd56843a7d",
+      "document_id": "121c3fe5c4cf37c71c6ac017e49ccb2f2860eee9c9c1f48ca35f5c36f4088980",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\14.png",
+      "file_name": "14.png",
+      "content_hash": "8a28c47cb51310e36bad9f3decf1e871081868a1673afd58dc3a5f064b168bbd",
+      "document_id": "278ad376c7a4bedcc45ee2f497fc6497da3f529e9c175b824e9b6e83e96e02b1",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\15.png",
+      "file_name": "15.png",
+      "content_hash": "15f7132bde3ee77dc3eaf53c4c11c9e3cb89107d6f886e0505d9c9a3b9f2792c",
+      "document_id": "68bc1fb2c1329f3a79a9c028dc4151c37d03f141b4d1206922026350de4cd7e1",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\16.png",
+      "file_name": "16.png",
+      "content_hash": "8e732a7950d0175618b62325b733b3f12ad4709a89a5b8c15207962c6df0b868",
+      "document_id": "7668700713716f33a7b72e6e99cfa2e515d9f05c74083ff5278603190c3dd800",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\17.png",
+      "file_name": "17.png",
+      "content_hash": "29e1b95bd7d5c35fa0c9940c7b174c582f5c6a67f40e638e78bee5ed19c1e1c7",
+      "document_id": "a37897a3aae1156430ef37343bb3eea83569174ffbe388ef863a9df023b4b8bf",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\18.png",
+      "file_name": "18.png",
+      "content_hash": "d17139bfb7065217472438ee26a9bdef3118c4759afa91cde06a2f129d322461",
+      "document_id": "69ac23ae976548c2efe57428b376e54bfdac09a098717f1d6a8dea03831a1f67",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    },
+    {
+      "source_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\corpus\\19.png",
+      "file_name": "19.png",
+      "content_hash": "0daac86ab125e9aef5bd18baf32fe013ddb2d501875d9d082aff0d2e5d2d5e69",
+      "document_id": "c0b2746a60eac4025bb0b41bc93ea74b7f2f95e14f01d833cda1ad84ea369a37",
+      "page_count": 1,
+      "status": "SUCCESS",
+      "failed_pages": []
+    }
+  ],
+  "page_count": 20,
+  "corpus_hash": "6fdf71628716e4c6e13f28940832865a36c72cdb7cf865204c03bcd0417af18c",
+  "created_at": "2026-09-29T13:23:20.154920+00:00"
+}

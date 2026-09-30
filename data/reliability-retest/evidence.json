@@ -1,0 +1,217 @@
+{
+  "A": {
+    "source": "C:\\TEMP\\RAG.Арбитр\\data\\cache\\pages\\2eb55ab2d947850ee1baa9f2eb2b0a466f685a3c5070e67a65fd7999e2024d0d\\0001.png",
+    "status": "UNCERTAIN",
+    "blocks": 16,
+    "warnings": [
+      "UNCERTAIN: conflicting order; original VLM sequence preserved; legacy tables appended",
+      "Unknown block type 'signature' normalized to other"
+    ]
+  },
+  "B": {
+    "source": "C:\\TEMP\\RAG.Арбитр\\data\\cache\\pages\\6994e5532baea37084aa2672ea079acc99e40e655d1f57e7d0e50e6da860808b\\0003.png",
+    "initial": "replay of original explicit truncation; recovery uses real Ollama",
+    "status": "SUCCESS",
+    "provider": "classic_ocr",
+    "actual_qwen_calls": 3,
+    "diagnostics": {
+      "attempts": [
+        {
+          "attempt": 1,
+          "kind": "initial",
+          "page_number": 3,
+          "fragment_id": null,
+          "coordinates": null,
+          "provider": "qwen3_vl",
+          "status": "FAILED",
+          "duration_ms": 6.984899984672666,
+          "raw_output_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\B-attempts\\dfba9e3f29ab4b1997133e87af319368\\01-initial.raw",
+          "configured_max_output": 8192,
+          "configured_context": 16384,
+          "effective_device": "gpu",
+          "size_vram": 3478074162,
+          "model_memory_bytes": 3478074162,
+          "runtime_model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+          "image_width": 1280,
+          "image_height": 905,
+          "done": true,
+          "done_reason": "length",
+          "total_duration": 97692867700,
+          "load_duration": 8185500,
+          "eval_count": 8192,
+          "prompt_eval_count": 1346,
+          "error": "Generation truncated; increase generation/context budget or inspect page",
+          "failure_scope": "page"
+        },
+        {
+          "attempt": 2,
+          "kind": "retry",
+          "page_number": 3,
+          "fragment_id": null,
+          "coordinates": null,
+          "provider": "qwen3_vl",
+          "status": "FAILED",
+          "duration_ms": 148430.48320000526,
+          "raw_output_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\B-attempts\\dfba9e3f29ab4b1997133e87af319368\\02-retry.raw",
+          "configured_max_output": 12288,
+          "configured_context": 16384,
+          "effective_device": "gpu",
+          "size_vram": 3478074162,
+          "model_memory_bytes": 3478074162,
+          "runtime_model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+          "image_width": 1280,
+          "image_height": 905,
+          "done": true,
+          "done_reason": "length",
+          "total_duration": 148307988600,
+          "load_duration": 7667200,
+          "eval_count": 12288,
+          "prompt_eval_count": 1334,
+          "error": "Generation truncated; increase generation/context budget or inspect page",
+          "failure_scope": "page"
+        },
+        {
+          "attempt": 3,
+          "kind": "fragment",
+          "page_number": 3,
+          "fragment_id": "0",
+          "coordinates": [
+            0,
+            0,
+            2339,
+            860
+          ],
+          "provider": "qwen3_vl",
+          "status": "SUCCESS",
+          "duration_ms": 7718.483600066975,
+          "raw_output_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\B-attempts\\dfba9e3f29ab4b1997133e87af319368\\03-fragment.raw",
+          "configured_max_output": 8192,
+          "configured_context": 16384,
+          "effective_device": "gpu",
+          "size_vram": 3478074162,
+          "model_memory_bytes": 3478074162,
+          "runtime_model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+          "image_width": 1280,
+          "image_height": 471,
+          "done": true,
+          "done_reason": "stop",
+          "total_duration": 7667839700,
+          "load_duration": 4707900,
+          "eval_count": 721,
+          "prompt_eval_count": 1274,
+          "normalization": [],
+          "reading_order_status": "OK",
+          "json_repaired": false
+        },
+        {
+          "attempt": 4,
+          "kind": "fragment",
+          "page_number": 3,
+          "fragment_id": "1",
+          "coordinates": [
+            0,
+            794,
+            2339,
+            1654
+          ],
+          "provider": "qwen3_vl",
+          "status": "FAILED",
+          "duration_ms": 90796.5617000591,
+          "raw_output_path": "C:\\TEMP\\RAG.Арбитр\\data\\reliability-retest\\B-attempts\\dfba9e3f29ab4b1997133e87af319368\\04-fragment.raw",
+          "configured_max_output": 8192,
+          "configured_context": 16384,
+          "effective_device": "gpu",
+          "size_vram": 3478074162,
+          "model_memory_bytes": 3478074162,
+          "runtime_model": "hf.co/Qwen/Qwen3-VL-2B-Instruct-GGUF:Q4_K_M",
+          "image_width": 1280,
+          "image_height": 471,
+          "done": true,
+          "done_reason": "length",
+          "total_duration": 90743434900,
+          "load_duration": 6309200,
+          "eval_count": 8192,
+          "prompt_eval_count": 1274,
+          "error": "Generation truncated; increase generation/context budget or inspect page",
+          "failure_scope": "page"
+        }
+      ],
+      "original_qwen_attempts": 4,
+      "finish_reason": "length",
+      "truncated": true,
+      "fragmented": false,
+      "fallback_used": true,
+      "fallback_reason": "Generation truncated; increase generation/context budget or inspect page",
+      "retried": true,
+      "reading_order_status": "OK"
+    }
+  },
+  "medium": {
+    "status": "SUCCESS",
+    "pages": 20,
+    "source_documents": 12,
+    "duration": 544.8254360000137,
+    "actual_qwen_calls": 21,
+    "cache_hits": 0,
+    "reliability": {
+      "qwen_success": 19,
+      "qwen_retry_success": 1,
+      "qwen_fragment_success": 0,
+      "classic_fallback": 0,
+      "failed": 0,
+      "cache_reused": 0,
+      "order_repaired": 0,
+      "order_uncertain": 0,
+      "token_recovered": 1,
+      "documents_success": 20,
+      "documents_partial": 0,
+      "documents_failed": 0
+    },
+    "indexes": {
+      "fixed": {
+        "status": "SUCCESS",
+        "documents": 20,
+        "chunks": 20
+      },
+      "structure": {
+        "status": "SUCCESS",
+        "documents": 20,
+        "chunks": 104
+      }
+    }
+  },
+  "repeat": {
+    "status": "SUCCESS",
+    "pages": 20,
+    "source_documents": 12,
+    "duration": 151.407453599968,
+    "actual_qwen_calls": 0,
+    "cache_hits": 20,
+    "reliability": {
+      "qwen_success": 19,
+      "qwen_retry_success": 1,
+      "qwen_fragment_success": 0,
+      "classic_fallback": 0,
+      "failed": 0,
+      "cache_reused": 20,
+      "order_repaired": 0,
+      "order_uncertain": 0,
+      "token_recovered": 1,
+      "documents_success": 20,
+      "documents_partial": 0,
+      "documents_failed": 0
+    },
+    "indexes": {
+      "fixed": {
+        "status": "SUCCESS",
+        "documents": 20,
+        "chunks": 20
+      },
+      "structure": {
+        "status": "SUCCESS",
+        "documents": 20,
+        "chunks": 104
+      }
+    }
+  }
+}

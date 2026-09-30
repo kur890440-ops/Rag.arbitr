@@ -1,0 +1,22 @@
+{
+  "source": "data\\web\\corpora\\3281c7fda17c76e3fc3e161be162062f0f9ac389513697588914aca965e9c392\\0ec575721e17438495ec7a8634bef648\\БРК_зявление_о_взыскании_убытков_.pdf",
+  "method": "real PDF pages 1-3 and saved Qwen outputs; unresolved page 3 deliberately replayed to test partial indexing",
+  "status": "PARTIAL",
+  "document_status": "PARTIAL",
+  "failed_pages": [
+    3
+  ],
+  "indexes": {
+    "fixed": {
+      "status": "PARTIAL",
+      "pages": 2,
+      "chunks": 1
+    },
+    "structure": {
+      "status": "PARTIAL",
+      "pages": 2,
+      "chunks": 3
+    }
+  },
+  "actual_qwen_calls": 0
+}

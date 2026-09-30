@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>rag.арбитр · Document Lab</title><link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js" defer></script><script src="/static/app.js" defer></script></head>
+<body data-run="{{ selected }}" hx-history="false">
+<header class="app-header"><a class="brand" href="/">rag.<b>арбитр</b></a><span>DAY 21 · FIXED SIZE vs STRUCTURE AWARE</span><button class="secondary" id="toggle-files">Файлы</button></header>
+<div id="system" hx-get="/ui/system" hx-trigger="load">Проверка системы…</div>
+<div class="app-layout"><main><nav class="workspace-tabs" aria-label="Workspace">
+<button data-tab="overview">Обзор</button><button data-tab="recognition">Распознавание</button><button data-tab="chunking">Chunking</button><button data-tab="retrieval">Поиск</button><button data-tab="evaluation">Evaluation</button><button data-tab="diagnostics">Diagnostics</button></nav>
+<div id="notification" role="alert" hidden></div>
+<div class="top-grid" data-tab-panel="overview"><section id="upload" class="panel"><p class="eyebrow">01 / ИСТОЧНИКИ</p><h2>Добавьте документы</h2>
+<form id="upload-form">
+<label id="drop-zone" class="drop-zone" for="files"><span class="upload-symbol">↑</span><strong>Перетащите файлы сюда</strong><span>или выберите на компьютере</span><small>PDF · PNG · JPG · WEBP / {% if config.max_upload_size %}до {{ config.max_upload_size // 1048576 }} МБ на файл{% else %}без ограничения размера{% endif %} / {% if config.max_upload_files %}до {{config.max_upload_files}} файлов{% else %}без ограничения количества файлов{% endif %}</small></label>
+<input id="files" name="files" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple required><ul id="pending-files"></ul><button type="submit" class="secondary">Загрузить выбранные файлы</button><span class="htmx-indicator">Загрузка…</span></form>
+<details class="upload-selection"><summary>Состав следующего запуска</summary><div id="uploaded">{% if uploads %}{% include "uploads.html" %}{% else %}<p class="muted">Файлы ещё не загружены.</p>{% endif %}</div>
+</details><form id="start-form" hx-post="/ui/runs" hx-include="#uploaded" hx-target="#start-notice" hx-disabled-elt="find button">
+<label for="provider">Распознавание</label><select id="provider" name="recognition_provider"><option value="qwen3_vl">Qwen Primary · восстановление и явный fallback</option><option value="classic_ocr">Classic OCR Only · RapidOCR</option></select>
+<button type="submit" {% if not uploads %}disabled{% endif %}>Запустить обработку <span>→</span></button></form><p id="start-notice" class="muted">{% if not uploads %}Сначала выберите файлы и нажмите «Загрузить выбранные файлы».{% endif %}</p></section>
+<section id="processing" class="panel"><div class="section-head"><div><p class="eyebrow">02 / PROCESSING RUN</p><h2>Ход обработки</h2></div><span id="run-status" class="badge neutral">NO RUN YET</span></div>
+<label for="run-select">Сохранённые запуски</label><select id="run-select"><option value="">Нет выбранного запуска</option>{% for run in runs %}<option value="{{run.run_id}}" {% if run.run_id == selected %}selected{% endif %}>{{run.created_at[:19]}} · {{run.status}} · {{run.run_id[:8]}}</option>{% endfor %}</select>
+<div class="progress-label"><strong id="run-stage">—</strong><span id="run-percent">—</span></div><progress id="run-progress" max="100" value="0"></progress><small class="muted">Прогресс по этапам, ориентировочно</small>
+<p id="run-message">Загрузите документы и запустите обработку.</p><p class="muted" id="current-page">—</p>
+<div class="metrics"><div><b id="processed-pages">—</b><span>страниц</span></div><div><b id="elapsed">—</b><span>прошло</span></div><div><b id="cache-count">—</b><span>recognition HIT / MISS</span></div><div><b id="embedding-count">—</b><span>embeddings новые / кеш</span></div></div>
+<p class="muted" id="recognition-average">—</p>
+<div id="recognition-summary" hidden></div>
+<button id="cancel-run" class="secondary danger" disabled>Отменить run</button><details><summary>Техническая диагностика</summary><pre id="run-diagnostics">No run yet</pre></details></section></div>
+<div id="workspace"><section class="panel"><p class="muted">Распознавание, чанки и поиск появятся после обработки.</p></section></div>
+<footer>rag.арбитр · Qwen → BGE-M3 → Qdrant</footer></main><aside id="file-panel"><h2>ФАЙЛЫ</h2><p class="legend">с = страницы · Q = Qwen · O = Classic OCR fallback<br>F = Fixed Size chunks · S = Structure Aware chunks · E = embeddings · ! = errors</p><input id="file-search" placeholder="Поиск по имени файла" aria-label="Поиск по имени файла"><div id="file-list-content"></div></aside></div></body></html>

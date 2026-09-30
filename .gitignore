@@ -1,0 +1,23 @@
+.venv/
+.tools/
+.python/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+data/corpus/*.pdf
+data/cache/
+data/sqlite/
+data/qdrant/
+data/reports/
+data/integration-tmp*/
+*.log
+.runtime/
+data/recognition-smoke/
+data/uploads/
+data/web/
+data/web-smoke/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3

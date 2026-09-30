@@ -1,0 +1,70 @@
+{
+  "fixed": {
+    "hits": [
+      {
+        "rank": 1,
+        "chunk_id": "3863bd656b7bc29562dc79bfb281999ff5974a52e83e0eece39c6b1ed0b5241c",
+        "file_name": "Протокол СК.pdf",
+        "score": 0.5620227938829887
+      },
+      {
+        "rank": 2,
+        "chunk_id": "fe9437b9f07bf53a2d9ed545b75551cbf59e76c0ff16c650ccfe7daa0c5cabf2",
+        "file_name": "Жалоба_ООО_Гонзо_на_Стручалину_А_В_.pdf",
+        "score": 0.5486584877550114
+      },
+      {
+        "rank": 3,
+        "chunk_id": "7b06f05fe9135e2d978cc33d6b44e49b53992427694c649e433e8c7dd53ad602",
+        "file_name": "БРК_зявление_о_взыскании_убытков_.pdf",
+        "score": 0.5450778992263827
+      },
+      {
+        "rank": 4,
+        "chunk_id": "6b6dcb4ab5e09c17bb3cc539c83194768b4770badb093cbe3f3822cf7889307e",
+        "file_name": "Протокол СК.pdf",
+        "score": 0.5385338813715596
+      },
+      {
+        "rank": 5,
+        "chunk_id": "225ca8e4e3b2bec0b96ab4f6e380c3daf379484a89f1ba5aed89933401c1b622",
+        "file_name": "БРК_зявление_о_взыскании_убытков_.pdf",
+        "score": 0.5255432513442739
+      }
+    ]
+  },
+  "structure": {
+    "hits": [
+      {
+        "rank": 1,
+        "chunk_id": "4cf41ef49b9aad5dbb42e45ee4813978845805550cc49764d0e73bca83d852ff",
+        "file_name": "Протокол СК.pdf",
+        "score": 0.6041005318939449
+      },
+      {
+        "rank": 2,
+        "chunk_id": "36e0e748cc2a033b66a501e34eb7c0b024cd7e82afa4f4f5789b60d070396a78",
+        "file_name": "Протокол СК.pdf",
+        "score": 0.6006423951688504
+      },
+      {
+        "rank": 3,
+        "chunk_id": "e961bb0d26a0fb402559e7937c70a4a956083302456656494fc0434af09374bd",
+        "file_name": "Жалоба_ООО_Гонзо_на_Стручалину_А_В_.pdf",
+        "score": 0.590456377515913
+      },
+      {
+        "rank": 4,
+        "chunk_id": "334d32639de91ae3fbfb3febd0198e2181f6620c2b3c430a6c7a21146e737bd2",
+        "file_name": "Протокол СК.pdf",
+        "score": 0.5800844816263853
+      },
+      {
+        "rank": 5,
+        "chunk_id": "0f5789452b0792a948446557ba19a6895e1bf8c5c16f819e8474441748e67be1",
+        "file_name": "Протокол СК.pdf",
+        "score": 0.5743110134290467
+      }
+    ]
+  }
+}
