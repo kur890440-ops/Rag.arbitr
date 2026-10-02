@@ -1,6 +1,11 @@
-# rag.арбитр — Day 21: Document Indexing
+# rag.арбитр — Day 21 Document Indexing / Day 22 First RAG Query
 
-Отдельный Python-проект для локального сравнения двух способов разбиения сканированных PDF. Документы не отправляются в AI API. Проект не зависит от других приложений, их баз данных, конфигурации или MCP.
+Отдельный Python-проект для локального сравнения двух способов разбиения сканированных PDF. Распознавание, embeddings и поиск выполняются локально. В Day 22 генерация через MiniMax отправляет в облако вопрос; ветка полного контекста добавляет весь нормализованный текст выбранной области, а RAG — отобранные фрагменты. Проект не зависит от других приложений, их баз данных, конфигурации или MCP.
+
+**Day 22:** во вкладке «Поиск» всегда три панели: БЕЗ КОНТЕКСТА / БЕЗ RAG · ПОЛНЫЙ ПРОСМОТР / С RAG. Средняя покрывает весь нормализованный текст выбранного справа файла либо всех документов: маленькая область — один запрос; большая — независимые extraction-пакеты, детерминированное объединение/подсчёт и один краткий итоговый ответ. Успешные пакеты кешируются; повторное сравнение продолжает недостающие. Покрытие и стоимость в токенах/запросах видны в средней панели, диагностика свёрнута. RAG по умолчанию ищет по всему корпусу независимо от выбранного файла; SELECTED_DOCUMENT включается явно. Сохранены Fixed/Structure, Top-K, источники, до 10 контрольных вопросов, последовательный запуск всех вопросов и история. Отдельного Corpus Analysis UI нет. Конфигурация — `[llm]` в игнорируемом `config.toml`: `exhaustive_concurrency=1` (до 2), `exhaustive_map_retries=1` (до 2), `exhaustive_map_temperature=0`. Ключ: `api_key` либо `MINIMAX_API_KEY` (окружение имеет приоритет). `.env` автоматически не загружается. Настройка и проверки: [DAY22_REPORT.md](DAY22_REPORT.md).
+
+Point RAG Day 22: BGE-M3 query ? Qdrant active candidates ? exact/overlap dedup ? document/section grouping ? parent/neighbor expansion ? diversity/budget selection ? text sources ? MiniMax. `candidate_top_n=20` controls retrieval breadth; `max_context_sources=5` controls final sources (unset uses legacy root `top_k`). Root settings: `context_expansion_budget=6000`, `context_diversity_penalty=0.04`, optional `minimum_candidate_score` (disabled by default). Final context budget is `[llm].context_budget`; UI/API may override per comparison. Old saved comparisons retain their old Top-K; no reindexing is required. Raw Day 21 search/evaluation retains its own Top-K semantics.
+
 
 **CLI corpus `data/corpus/` по умолчанию пуст.** При пустом корпусе `day21` создаёт честный отчёт `CORPUS REQUIRED`, не загружает модели и не подставляет тестовые документы. Web-загрузки используют отдельные корпуса в `data/web/corpora/`. Синтетические PDF существуют только в тестах.
 
@@ -13,7 +18,7 @@ Set-Location 'C:\TEMP\RAG.Арбитр'
 .\.venv\Scripts\python.exe -m rag_arbiter web --open-browser
 ```
 
-Адрес: **http://127.0.0.1:8765**. `--open-browser` необязателен; порт меняется через `web --port 8767` или `web_port` в конфигурации. Bind всегда loopback. Перед обработкой запустите Ollama; для подготовленного portable runtime при ограничениях PowerShell:
+Адрес: **http://127.0.0.1:8765**. `--open-browser` необязателен; порт меняется через `web --port 8767` или `web_port` в конфигурации. Интерфейс задаётся `web_host`/`web --host`; текущая конфигурация слушает `0.0.0.0` для доступа из локальной сети. Перед обработкой запустите Ollama; для подготовленного portable runtime при ограничениях PowerShell:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/start_ollama.ps1
@@ -23,7 +28,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/start_ollama.ps1
 2. Выберите Qwen3-VL или Classic OCR и нажмите «Запустить обработку». Панель Processing Run показывает этап, текущую страницу, время, recognition HIT/MISS и созданные/повторно использованные embeddings. Процент ориентировочный; счётчики фактические. «Отменить run» останавливает работу на ближайшей границе страницы/batch, сохраняя готовый кеш.
 3. В Recognition выберите документ/страницу: слева исходный скан, справа заголовки, абзацы, списки, подписи и таблицы. Raw загружается только при раскрытии; normalized JSON доступен отдельно.
 4. Chunking Comparison показывает Fixed и Structure рядом, реальные token statistics, preview и навигацию по чанкам.
-5. Введите вопрос в Semantic Retrieval. Один query embedding используется для обоих индексов с одинаковым Top-K. Кнопка у результата открывает его исходную страницу. Генерации LLM-ответа нет.
+5. Во вкладке «Поиск» введите вопрос и нажмите «Сравнить». Выбранный активный индекс используется для RAG, две ветки вызывают один MiniMax с одинаковыми настройками. Исходный семантический поиск Fixed vs Structure сохранён в раскрывающемся блоке под сравнением.
 6. Evaluation показывает метрики существующего evaluation set. Если он отсутствует, выводится **Evaluation dataset not configured**. HTML-отчёт можно открыть, скачать и обновить существующим генератором.
 
 System Status читает GPU/runtime/models/SQLite/Qdrant/Docling с backend. Torch CUDA и GPU-размещение Ollama показаны отдельно. Техническая диагностика раскрывает ProcessingRun, счётчики и безопасные ошибки. Перезагрузка браузера восстанавливает run и его исходный набор из SQLite.

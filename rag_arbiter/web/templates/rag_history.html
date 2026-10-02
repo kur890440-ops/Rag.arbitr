@@ -1,0 +1,2 @@
+{% for r in history %}<p><button class="text-button" data-rag-result="{{r.comparison_run_id}}">{{r.question_text}}</button> <small>{{r.created_at[:19]}} · {{r.retrieval_strategy}} · {{r.scope_type}} · {{r.status}}</small></p>{% else %}<p class="muted">Сравнений пока нет.</p>{% endfor %}
+{% for b in batches %}<p><button class="text-button" data-rag-batch="{{b.batch_id}}">Пакет · {{b.current}}/{{b.total}} · {{b.status}} · {{b.created_at[:19]}}</button></p>{% endfor %}

@@ -219,11 +219,11 @@ class RunService:
                 store.put("processing_runs", run_id, run)
             return self.public(run)
 
-    def query(self, config, question, compare=True, strategy="fixed", snapshot=None):
+    def query(self, config, question, compare=True, strategy="fixed", snapshot=None, document_id=None):
         with self.operation_lock():
             pipeline = self.pipeline_factory(config)
             try:
-                return pipeline.query(question, compare=compare, strategy=strategy, snapshot=snapshot)
+                return pipeline.query(question, compare=compare, strategy=strategy, snapshot=snapshot, document_id=document_id)
             finally:
                 pipeline.close()
 

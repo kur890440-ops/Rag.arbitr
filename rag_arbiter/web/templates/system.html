@@ -3,4 +3,5 @@
 <div><small>RECOGNITION</small><strong>{{status.recognition_provider}}</strong><span>{{status.recognition_model}}</span></div>
 <div><small>RUNTIME</small><strong>{{status.runtime}} · {{status.runtime_status.version or status.runtime_status.status}}</strong><span>Модель: {{'установлена' if status.model_installed else 'не подтверждена'}}</span></div>
 <div><small>EMBEDDINGS</small><strong>{{status.embedding_model}}</strong><span>Device: {{status.embedding_device}}</span></div>
+<div><small>GENERATION · Cloud LLM</small><strong>{{status.llm.model}} · {{status.llm.status}}</strong><span>MiniMax API · ключ: переменная окружения MINIMAX_API_KEY</span></div>
 <div><small>ХРАНИЛИЩЕ</small><strong>Qdrant {{status.qdrant.version}} · Local</strong><span>SQLite: {{status.sqlite.status}} · schema {{status.sqlite.schema_version}} / Docling {{status.docling}}</span></div></div>

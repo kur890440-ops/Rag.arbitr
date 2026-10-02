@@ -18,14 +18,21 @@ class SemanticRetriever:
     def __init__(self, provider, vectors, store):
         self.provider, self.vectors, self.store = provider, vectors, store
 
-    def retrieve_vector(self, vector, index, top_k):
+    def retrieve_vector(self, vector, index, top_k, document_id=None):
         if index["embedding"] != self.provider.identity:
             raise ValueError("Query model/settings differ from indexed model")
         results = []
         from .application.rechunk import partitions
         points = []
+        versions = {}
         for part in partitions(index):
-            points.extend(self.vectors.search(part['collection'], vector, top_k, part['document_ids']))
+            if document_id and document_id not in part['document_ids']:continue
+            active = part.get('chunk_ids', [])
+            if active:
+                found=self.vectors.search(part['collection'], vector, top_k,
+                    [document_id] if document_id else None, chunk_ids=active)
+                points.extend(found)
+                versions.update({p.payload['chunk_id']:part['run_id'] for p in found})
         points = sorted(points, key=lambda p: (-p.score, p.payload['chunk_id']))[:top_k]
         for rank, point in enumerate(points, 1):
             chunk = self.store.get("chunks", point.payload["chunk_id"])
@@ -33,11 +40,12 @@ class SemanticRetriever:
                 raise ValueError("Missing canonical chunk in SQLite")
             results.append({**point.payload, "rank": rank, "score": point.score, "text": chunk["text"]})
             results[-1].update({k:chunk.get(k, '') for k in ('source','title')})
+            results[-1].update(corpus_id=index.get('corpus_id'),chunking_run_id=versions[chunk['chunk_id']])
             if chunk.get("recognition_ids"):
                 results[-1]["provenance"] = self.store.trace_chunk(chunk["chunk_id"])
         return results
 
-    def compare(self, query, indexes, top_k):
+    def compare(self, query, indexes, top_k, document_id=None):
         validate_comparison(indexes["fixed"], indexes["structure"])
         started = time.perf_counter()
         vector = self.provider.encode([query])[0]
@@ -45,7 +53,7 @@ class SemanticRetriever:
         result = {}
         for strategy in ("fixed", "structure"):
             start = time.perf_counter()
-            hits = self.retrieve_vector(vector, indexes[strategy], top_k)
+            hits = self.retrieve_vector(vector, indexes[strategy], top_k, document_id)
             result[strategy] = {"hits": hits, "search_latency": time.perf_counter() - start,
                                 "query_embedding_latency": encoding, "retrieved_tokens": sum(h["token_count"] for h in hits)}
         return result

@@ -148,14 +148,18 @@ class ResultsService:
                                     'document_active_run':active_id, 'parameters':parameters, 'partitions':index.get('partitions', [])}
         return output
 
-    def search(self, run_id, question):
+    def search(self, run_id, question, rag_scope='ALL_DOCUMENTS', selected_document_id=None):
+        from ..scope import retrieval_document
+        document_id=retrieval_document(rag_scope,selected_document_id)
+        if document_id and not any(f['document_id']==document_id for f in self.files(run_id)):
+            raise ValueError('Документ не принадлежит запуску')
         if not question.strip() or len(question) > 4000:
             raise ValueError("Введите вопрос длиной от 1 до 4000 символов")
         run = self.runs.get(run_id)
         if run["status"] not in TERMINAL:
             raise ValueError("Дождитесь завершения run")
         cfg = Config(**run["config_json"])
-        results = self.runs.query(cfg, question, snapshot=self.snapshot(run_id))
+        results = self.runs.query(cfg, question, snapshot=self.snapshot(run_id),document_id=document_id)
         for group in results.values():
             for hit in group["hits"]:
                 hit["source_pages"] = [{"recognition_id": s["page"]["recognition_id"], "page_number": s["page"]["page_number"]}

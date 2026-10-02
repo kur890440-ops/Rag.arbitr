@@ -166,14 +166,14 @@ class Pipeline:
         self.reporter.emit("evaluation_completed", "EVALUATION", result["status"], evaluation_run_id=result.get("run_id"))
         return result
 
-    def query(self, question, compare=True, strategy="fixed", snapshot=None):
+    def query(self, question, compare=True, strategy="fixed", snapshot=None, document_id=None):
         snapshot = snapshot or self.read_snapshot()
         self.validate_current_corpus(snapshot)
         self.resources()
         retriever = SemanticRetriever(self.provider, self.vectors, self.store)
         if compare:
-            return retriever.compare(question, snapshot["indexes"], self.config.top_k)
-        return {strategy: {"hits": retriever.retrieve_vector(self.provider.encode([question])[0], snapshot["indexes"][strategy], self.config.top_k)}}
+            return retriever.compare(question, snapshot["indexes"], self.config.top_k, document_id)
+        return {strategy: {"hits": retriever.retrieve_vector(self.provider.encode([question])[0], snapshot["indexes"][strategy], self.config.top_k, document_id)}}
 
     def day21(self, strategies=("fixed", "structure"), do_evaluate=True):
         docs, snapshot = self.ingest()

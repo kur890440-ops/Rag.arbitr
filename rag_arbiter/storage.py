@@ -7,13 +7,15 @@ class MetadataStore:
     TABLES = ("documents", "document_pages", "document_blocks", "chunks", "corpora",
               "corpus_documents", "index_runs", "embeddings_metadata", "evaluation_queries",
               "evaluation_runs", "retrieval_results", "recognition_metadata", "processing_runs",
-              "processing_run_errors", "uploads", "recognition_cache", "chunk_settings", "normalized_documents")
+              "processing_run_errors", "uploads", "recognition_cache", "chunk_settings", "normalized_documents",
+              "rag_evaluation_questions", "rag_comparison_runs", "rag_batches",
+              "exhaustive_batch_results", "exhaustive_map_cache")
 
     def __init__(self, path):
         self.db = sqlite3.connect(path, timeout=30)
         self.db.execute("PRAGMA journal_mode=WAL")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 5:
+        if version > 8:
             raise ValueError("Unsupported database schema")
         for table in self.TABLES:
             self.db.execute(f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)))")
@@ -29,7 +31,19 @@ class MetadataStore:
                 chunk.setdefault('file_name', doc.get('file_name', chunk['document_id']))
                 chunk.setdefault('title', doc.get('title') or chunk['file_name'])
                 self.db.execute('UPDATE chunks SET data=? WHERE id=?', (json.dumps(chunk,ensure_ascii=False), key))
-        self.db.execute("PRAGMA user_version=5")
+        if version < 7:
+            from .application.full_document import full_document_defaults
+            for key, raw in self.db.execute('SELECT id,data FROM rag_comparison_runs').fetchall():
+                record={**full_document_defaults(),**json.loads(raw)}
+                self.db.execute('UPDATE rag_comparison_runs SET data=? WHERE id=?',(json.dumps(record,ensure_ascii=False),key))
+        if version < 8:
+            for key, raw in self.db.execute('SELECT id,data FROM rag_comparison_runs').fetchall():
+                r=json.loads(raw)
+                r.setdefault('rag_scope','SELECTED_DOCUMENT' if r.get('document_id') else 'ALL_DOCUMENTS')
+                r.setdefault('selected_document_id',r.get('document_id'))
+                r.setdefault('corpus_id',(r.get('index_snapshot') or {}).get('corpus_id'))
+                self.db.execute('UPDATE rag_comparison_runs SET data=? WHERE id=?',(json.dumps(r,ensure_ascii=False),key))
+        self.db.execute("PRAGMA user_version=8")
         self.db.commit()
 
     def put(self, table, key, data):

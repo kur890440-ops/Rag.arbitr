@@ -27,10 +27,13 @@ class LocalVectorStore:
         if points:
             self.client.upsert(name, points=points, wait=True)
 
-    def search(self, name, vector, top_k, document_ids=None):
-        query_filter = None
+    def search(self, name, vector, top_k, document_ids=None, chunk_ids=None):
+        conditions = []
         if document_ids is not None:
-            query_filter = models.Filter(must=[models.FieldCondition(key="document_id", match=models.MatchAny(any=document_ids))])
+            conditions.append(models.FieldCondition(key="document_id", match=models.MatchAny(any=document_ids)))
+        if chunk_ids is not None:
+            conditions.append(models.FieldCondition(key="chunk_id", match=models.MatchAny(any=chunk_ids)))
+        query_filter = models.Filter(must=conditions) if conditions else None
         return self.client.query_points(name, query=vector.tolist(), limit=top_k, query_filter=query_filter).points
 
     def close(self):

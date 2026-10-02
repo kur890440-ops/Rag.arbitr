@@ -21,3 +21,8 @@ data/web-smoke/
 *.db
 *.sqlite
 *.sqlite3
+.env
+.env.*
+!.env.example
+data/day22/
+/config.toml

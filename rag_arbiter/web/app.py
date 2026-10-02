@@ -19,6 +19,10 @@ from ..application.uploads import UploadService
 from ..application.views import ResultsService
 from ..application.status import SystemStatusService
 from ..application.rechunk import RechunkService, ChunkSettings
+from ..application.rag import RAGComparisonService, ControlQuestion
+from ..llm import MiniMaxLLMProvider
+from typing import Literal
+from ..scope import RAGScope
 
 ROOT = Path(__file__).parent
 
@@ -49,9 +53,26 @@ class StartRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
+    rag_scope: RAGScope = RAGScope.ALL_DOCUMENTS
+    selected_document_id: str | None = None
 
 
-def create_app(config=None, pipeline_factory=Pipeline):
+class RAGRequest(BaseModel):
+    question: str = Field('',max_length=4000)
+    question_id: str | None = None
+    document_id: str | None = None
+    selected_document_id: str | None = None
+    rag_scope: RAGScope = RAGScope.ALL_DOCUMENTS
+    strategy: Literal['fixed','structure'] = 'structure'
+    top_k: int | None = Field(None,ge=1,le=10,strict=True)
+    candidate_top_n: int | None = Field(None,ge=1,le=100,strict=True)
+    max_context_sources: int | None = Field(None,ge=1,le=20,strict=True)
+    context_token_budget: int | None = Field(None,ge=256,le=64000,strict=True)
+    minimum_candidate_score: float | None = Field(None,ge=-1,le=1)
+    chunking_run_id: str | None = None
+
+
+def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMProvider):
     config = config or Config.load()
 
     @asynccontextmanager
@@ -60,10 +81,11 @@ def create_app(config=None, pipeline_factory=Pipeline):
         app.state.uploads = UploadService(app.state.runs)
         app.state.views = ResultsService(app.state.runs)
         app.state.system = SystemStatusService(config)
+        app.state.rag = RAGComparisonService(app.state.runs,llm_factory)
         yield
         await run_in_threadpool(app.state.runs.close)
 
-    app = FastAPI(title="rag.арбитр · Day 21", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(title="rag.арбитр · Day 22", lifespan=lifespan, docs_url=None, redoc_url=None)
     request_limit = config.max_upload_request_size
     if config.max_upload_size and config.max_upload_files:
         request_limit = min(request_limit, config.max_upload_size * config.max_upload_files + 1024 * 1024)
@@ -79,6 +101,8 @@ def create_app(config=None, pipeline_factory=Pipeline):
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(allowed_hosts))
     app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
     templates = Jinja2Templates(directory=ROOT / "templates")
+    from .markdown import answer_markdown
+    templates.env.filters['answer_markdown'] = answer_markdown
 
     @app.middleware("http")
     async def local_boundary(request, call_next):
@@ -119,7 +143,9 @@ def create_app(config=None, pipeline_factory=Pipeline):
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, run_id: str | None = None):
         runs = request.app.state.runs.list()
-        selected = run_id if any(r["run_id"] == run_id for r in runs) else (runs[0]["run_id"] if runs else "")
+        # An explicitly created smoke corpus must not replace the user's corpus.
+        default_run=next((r['run_id'] for r in runs if r.get('operation')!='analysis_fixture'),'')
+        selected = run_id if any(r["run_id"] == run_id for r in runs) else default_run
         record = next((r for r in runs if r["run_id"] == selected), {})
         with request.app.state.runs.db() as store:
             uploads = [store.get("uploads", uid) for uid in record.get("upload_ids", [])]
@@ -243,7 +269,7 @@ def create_app(config=None, pipeline_factory=Pipeline):
                 for row in rows:
                     cursor = row["id"]
                     yield f"id: {cursor}\nevent: {row['event_type']}\ndata: {json.dumps(row, ensure_ascii=False)}\n\n"
-                if run["status"] in TERMINAL and len(rows) < 200:
+                if run["status"] not in ('QUEUED','RUNNING') and len(rows) < 200:
                     break
                 if not rows:
                     yield ": heartbeat\n\n"
@@ -336,15 +362,69 @@ def create_app(config=None, pipeline_factory=Pipeline):
 
     @app.post("/api/runs/{run_id}/search")
     def search(request: Request, run_id: str, data: SearchRequest):
-        return request.app.state.views.search(run_id, data.question)
+        return request.app.state.views.search(run_id, data.question, data.rag_scope, data.selected_document_id)
 
     @app.post("/ui/runs/{run_id}/search", response_class=HTMLResponse)
-    def search_ui(request: Request, run_id: str, question: str = Form(...)):
-        return render(request, "search.html", run_id=run_id, results=request.app.state.views.search(run_id, question))
+    def search_ui(request: Request, run_id: str, question: str = Form(...), rag_scope: RAGScope = Form(RAGScope.ALL_DOCUMENTS), selected_document_id: str = Form('')):
+        return render(request, "search.html", run_id=run_id, results=request.app.state.views.search(run_id, question,rag_scope,selected_document_id or None))
 
     @app.get("/api/runs/{run_id}/evaluation")
     def evaluation(request: Request, run_id: str):
         return request.app.state.views.evaluation(run_id)
+
+    @app.get('/api/rag/questions')
+    def rag_questions(request: Request):
+        return request.app.state.rag.questions.list()
+
+    @app.post('/api/rag/questions',status_code=201)
+    def rag_question_add(request: Request,data: ControlQuestion):
+        return request.app.state.rag.questions.save(data.model_dump())
+
+    @app.put('/api/rag/questions/{question_id}')
+    def rag_question_edit(request: Request,question_id: str,data: ControlQuestion):
+        return request.app.state.rag.questions.save(data.model_dump(),question_id)
+
+    @app.delete('/api/rag/questions/{question_id}')
+    def rag_question_delete(request: Request,question_id: str):
+        request.app.state.rag.questions.delete(question_id)
+        return {'status':'deleted'}
+
+    @app.get('/ui/rag/questions',response_class=HTMLResponse)
+    def rag_question_list(request: Request):
+        return render(request,'rag_questions.html',questions=request.app.state.rag.questions.list())
+
+    @app.post('/api/runs/{run_id}/rag/compare',status_code=202)
+    def rag_compare(request: Request,run_id: str,data: RAGRequest):
+        return {'comparison_run_id':request.app.state.rag.start(run_id,**data.model_dump())}
+
+    @app.post('/api/runs/{run_id}/rag/batch',status_code=202)
+    def rag_batch_start(request: Request,run_id: str,data: RAGRequest):
+        return {'batch_id':request.app.state.rag.start_all(run_id,**data.model_dump(exclude={'question','question_id'}))}
+
+    @app.get('/api/rag/comparisons/{comparison_id}')
+    def rag_result(request: Request,comparison_id: str):
+        return request.app.state.rag.get(comparison_id)
+
+    @app.get('/ui/rag/comparisons/{comparison_id}',response_class=HTMLResponse)
+    def rag_result_ui(request: Request,comparison_id: str):
+        return render(request,'rag_result.html',result=request.app.state.rag.get(comparison_id))
+
+    @app.get('/api/rag/batches/{batch_id}')
+    def rag_batch(request: Request,batch_id: str):
+        return request.app.state.rag.get(batch_id,'rag_batches')
+
+    @app.get('/ui/rag/batches/{batch_id}',response_class=HTMLResponse)
+    def rag_batch_ui(request: Request,batch_id: str):
+        batch=request.app.state.rag.get(batch_id,'rag_batches')
+        return render(request,'rag_batch.html',batch=batch,results=[request.app.state.rag.get(k) for k in batch['comparison_ids']])
+
+    @app.get('/ui/runs/{run_id}/rag/history',response_class=HTMLResponse)
+    def rag_history(request: Request,run_id: str):
+        request.app.state.runs.get(run_id)
+        with request.app.state.runs.db() as store:
+            history=[r for r in store.all('rag_comparison_runs') if r['processing_run_id']==run_id][-20:]
+            batches=[b for b in store.all('rag_batches') if b.get('processing_run_id')==run_id][-10:]
+        return render(request,'rag_history.html',history=list(reversed(history)),batches=list(reversed(batches)))
 
     @app.get("/api/runs/{run_id}/report")
     def report(request: Request, run_id: str, download: bool = False):
@@ -367,6 +447,7 @@ def create_app(config=None, pipeline_factory=Pipeline):
             history = [r for r in store.all('index_runs') if r.get('corpus_id')==corpus_id and (not document_id or document_id in r.get('document_ids', []))][-30:]
         files = request.app.state.views.files(run_id)
         return render(request, "workspace.html", run_id=run_id, pages=pages, document_id=document_id,
+                      active_indexes=request.app.state.views.snapshot(run_id).get('indexes',{}),
                       selected_file=next((f for f in files if f['document_id']==document_id), None), files=files, settings=settings, chunk_history=list(reversed(history)),
                       reliability=request.app.state.views.snapshot(run_id).get('recognition', {}).get('reliability', {}),
                       document_stats=request.app.state.views.snapshot(run_id).get('recognition', {}).get('document_stats', []),

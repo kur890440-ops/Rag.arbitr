@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>rag.арбитр · Document Lab</title><link rel="stylesheet" href="/static/style.css">
-<script src="/static/htmx.min.js" defer></script><script src="/static/app.js" defer></script></head>
+<script src="/static/htmx.min.js" defer></script><script src="/static/app.js" defer></script><script src="/static/rag.js" defer></script></head>
 <body data-run="{{ selected }}" hx-history="false">
-<header class="app-header"><a class="brand" href="/">rag.<b>арбитр</b></a><span>DAY 21 · FIXED SIZE vs STRUCTURE AWARE</span><button class="secondary" id="toggle-files">Файлы</button></header>
+<header class="app-header"><a class="brand" href="/">rag.<b>арбитр</b></a><span>DAY 22 · FIRST RAG QUERY</span><button class="secondary" id="toggle-files">Файлы</button></header>
 <div id="system" hx-get="/ui/system" hx-trigger="load">Проверка системы…</div>
 <div class="app-layout"><main><nav class="workspace-tabs" aria-label="Workspace">
 <button data-tab="overview">Обзор</button><button data-tab="recognition">Распознавание</button><button data-tab="chunking">Chunking</button><button data-tab="retrieval">Поиск</button><button data-tab="evaluation">Evaluation</button><button data-tab="diagnostics">Diagnostics</button></nav>

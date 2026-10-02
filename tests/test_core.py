@@ -29,7 +29,7 @@ def test_sqlite_models(config, doc):
     store.document(doc)
     assert store.get("documents", "doc")["page_count"] == 2
     assert {b["page_number"] for b in store.all("document_blocks")} == {1, 2}
-    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 5
+    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 8
     store.close()
 
 

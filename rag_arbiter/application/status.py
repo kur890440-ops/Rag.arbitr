@@ -7,6 +7,7 @@ class SystemStatusService:
         self.config = config
 
     def status(self):
+        from ..llm import llm_status
         import torch
         result = {"gpu": gpu_diagnostics(), "torch_cuda_available": torch.cuda.is_available(),
             "recognition_provider": self.config.recognition.provider, "recognition_model": self.config.recognition.model,
@@ -28,4 +29,12 @@ class SystemStatusService:
             result["placement"] = runtime.placement()  # Read only; status never loads a model.
         except Exception:
             result.update(runtime_status={"status": "unavailable"}, model_installed=None, placement={"effective_device": "unknown"})
+        result['llm'] = llm_status(self.config.llm)
+        if result['llm']['status']=='READY':
+            try:
+                with sqlite3.connect(f"file:{self.config.sqlite_path.resolve().as_posix()}?mode=ro",uri=True) as db:
+                    row=db.execute("SELECT json_extract(data,'$.no_rag_result.status'),json_extract(data,'$.rag_result.status') FROM rag_comparison_runs ORDER BY rowid DESC LIMIT 1").fetchone()
+                    if row and 'ERROR' in row:result['llm']['status']='ERROR'
+            except Exception:
+                pass
         return result

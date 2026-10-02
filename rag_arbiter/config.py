@@ -46,7 +46,11 @@ class RecognitionConfig(BaseModel):
         return self
 
 
+from .llm import LLMConfig
+
+
 class Config(BaseModel):
+    llm: LLMConfig = Field(default_factory=LLMConfig)
     recognition: RecognitionConfig = Field(default_factory=RecognitionConfig)
     corpus_path: Path = Path("data/corpus")
     cache_path: Path = Path("data/cache")
@@ -67,6 +71,11 @@ class Config(BaseModel):
     fixed_max_tokens: int = 1000
     structure_max_tokens: int = 1000
     top_k: int = 5
+    candidate_top_n: int = Field(20, ge=1, le=100)
+    max_context_sources: int | None = Field(None, ge=1, le=20)
+    minimum_candidate_score: float | None = Field(None, ge=-1, le=1)
+    context_expansion_budget: int = Field(6000, ge=256, le=64000)
+    context_diversity_penalty: float = Field(0.04, ge=0, le=1)
     preview_chars: int = 700
     similarity: str = "Cosine"
     web_port: int = 8765
