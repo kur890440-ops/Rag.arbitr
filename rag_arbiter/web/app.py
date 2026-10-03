@@ -22,6 +22,7 @@ from ..application.rechunk import RechunkService, ChunkSettings
 from ..application.rag import RAGComparisonService, ControlQuestion
 from ..llm import MiniMaxLLMProvider
 from typing import Literal
+from ..reranking import RAGPipelineMode
 from ..scope import RAGScope
 
 ROOT = Path(__file__).parent
@@ -58,6 +59,8 @@ class SearchRequest(BaseModel):
 
 
 class RAGRequest(BaseModel):
+    rag_pipeline_mode: RAGPipelineMode = RAGPipelineMode.BASELINE
+    rerank_threshold: float | None = Field(None,ge=0,le=1)
     question: str = Field('',max_length=4000)
     question_id: str | None = None
     document_id: str | None = None
@@ -85,7 +88,7 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
         yield
         await run_in_threadpool(app.state.runs.close)
 
-    app = FastAPI(title="rag.арбитр · Day 22", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(title="rag.арбитр · Day 23", lifespan=lifespan, docs_url=None, redoc_url=None)
     request_limit = config.max_upload_request_size
     if config.max_upload_size and config.max_upload_files:
         request_limit = min(request_limit, config.max_upload_size * config.max_upload_files + 1024 * 1024)
@@ -153,13 +156,25 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
         return render(request, "index.html", runs=runs, selected=selected, uploads=uploads,
                       ids=json.dumps([u["upload_id"] for u in uploads]))
 
+    def enriched_status(request):
+        status=request.app.state.system.status()
+        service=request.app.state.rag
+        providers=list(service.rerankers.values())
+        installed=all((Path(config.reranker.local_path)/name).is_file() for name in ('config.json','tokenizer.json','model.safetensors'))
+        device=config.reranker.device
+        if device=='auto':device='cuda' if status.get('torch_cuda_available') else 'cpu'
+        available=installed and (device!='cuda' or status.get('torch_cuda_available'))
+        status['reranker']=providers[-1].status() if providers else dict(model=config.reranker.model,device=device,status='READY' if available else 'ERROR',loaded=False)
+        status['query_rewrite']=dict(model=config.llm.model,status='READY' if config.llm.resolved_key() else 'ERROR')
+        return status
+
     @app.get("/api/system/status")
     def system(request: Request):
-        return request.app.state.system.status()
+        return enriched_status(request)
 
     @app.get("/ui/system", response_class=HTMLResponse)
     def system_ui(request: Request, details: bool = False):
-        return render(request, "system.html" if details else "system_strip.html", status=request.app.state.system.status())
+        return render(request, "system.html" if details else "system_strip.html", status=enriched_status(request))
 
     def save_uploads(request, files):
         if not files:
@@ -400,6 +415,21 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
     @app.post('/api/runs/{run_id}/rag/batch',status_code=202)
     def rag_batch_start(request: Request,run_id: str,data: RAGRequest):
         return {'batch_id':request.app.state.rag.start_all(run_id,**data.model_dump(exclude={'question','question_id'}))}
+
+    @app.post('/api/runs/{run_id}/rag/evaluate',status_code=202)
+    def rag_modes_start(request: Request,run_id: str,data: RAGRequest):
+        return {'batch_id':request.app.state.rag.start_all(run_id,compare_modes=True,**data.model_dump(exclude={'question','question_id'}))}
+
+    @app.get('/ui/runs/{run_id}/rag/evaluation',response_class=HTMLResponse)
+    def rag_modes_table(request: Request,run_id: str):
+        service=request.app.state.rag
+        with service.runs.db() as store:
+            batches=[b for b in store.all('rag_batches') if b.get('day23_evaluation') and b['processing_run_id']==run_id]
+        batch=batches[-1] if batches else None
+        records=[service.get(k) for k in batch['comparison_ids']] if batch else []
+        grouped={}
+        for r in records:grouped.setdefault(r['question_text'],{})[r['rag_pipeline_mode']]=r
+        return render(request,'rag_evaluation.html',batch=batch,grouped=grouped)
 
     @app.get('/api/rag/comparisons/{comparison_id}')
     def rag_result(request: Request,comparison_id: str):

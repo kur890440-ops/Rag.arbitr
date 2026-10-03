@@ -5,3 +5,5 @@
 <div><small>EMBEDDINGS</small><strong>{{status.embedding_model}}</strong><span>Device: {{status.embedding_device}}</span></div>
 <div><small>GENERATION · Cloud LLM</small><strong>{{status.llm.model}} · {{status.llm.status}}</strong><span>MiniMax API · ключ: переменная окружения MINIMAX_API_KEY</span></div>
 <div><small>ХРАНИЛИЩЕ</small><strong>Qdrant {{status.qdrant.version}} · Local</strong><span>SQLite: {{status.sqlite.status}} · schema {{status.sqlite.schema_version}} / Docling {{status.docling}}</span></div></div>
+
+{% if status.reranker %}<p>Reranker: {{status.reranker.model}} · {{status.reranker.device}} · {{status.reranker.status}}{% if not status.reranker.loaded and status.reranker.status=='READY' %} · загрузка при первом запросе{% endif %}</p><p>Query Rewrite: {{status.query_rewrite.model}} · {{status.query_rewrite.status}}</p>{% endif %}

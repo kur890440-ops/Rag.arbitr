@@ -15,6 +15,8 @@ from .full_document import FullDocumentContextBuilder, full_document_defaults
 from .exhaustive import ExhaustiveNoRAG
 from .context_selection import ContextCandidate, CandidateProcessor, ContextSelector
 from ..scope import RAGScope, retrieval_document
+from ..reranking import RAGPipelineMode, LocalReranker, RerankCandidate, RerankerUnavailable
+from .query_rewrite import QueryRewriteService
 
 
 class ExpectedSource(BaseModel):
@@ -116,13 +118,16 @@ def source_metrics(hits,expected,top_k):
     docs=[s for s in expected if s.get('document_id') or s.get('file_name')]
     if docs:
         result.update({f'document_hit@{k}':int(any(h.get('document_id')==s['document_id'] if s.get('document_id') else h.get('file_name')==s['file_name'] for h in hits[:k] for s in docs)) if top_k>=k else None for k in (1,3,5)})
+    rank=next((i+1 for i,h in enumerate(hits) if any(matches(h,s) for s in expected)),None)
+    result.update(expected_source_rank=rank,reciprocal_rank=1/rank if rank else 0)
     return result
 
 
 class RAGComparisonService:
-    def __init__(self,runs,llm_factory=MiniMaxLLMProvider):
+    def __init__(self,runs,llm_factory=MiniMaxLLMProvider,reranker_factory=LocalReranker):
         self.runs,self.llm_factory=runs,llm_factory
         self.questions=QuestionStore(runs)
+        self.reranker_factory=reranker_factory;self.rerankers={}
         self.futures={}
         self.recover()
 
@@ -141,6 +146,7 @@ class RAGComparisonService:
         with self.runs.db() as store:r=store.get(table,key)
         if not r:raise KeyError('Comparison unavailable')
         if table=='rag_comparison_runs':
+            r.setdefault('rag_pipeline_mode','BASELINE')
             r={**full_document_defaults(),**r}
             if 'candidate_policy_version' not in r:
                 r.setdefault('candidate_top_n',r.get('top_k',5))
@@ -152,8 +158,11 @@ class RAGComparisonService:
     def put(self,r,table='rag_comparison_runs'):
         with self.runs.db() as store:store.put(table,r['comparison_run_id'] if table=='rag_comparison_runs' else r['batch_id'],r)
 
-    def prepare(self,run_id,question='',question_id=None,document_id=None,strategy='structure',top_k=None,chunking_run_id=None,rag_scope=RAGScope.ALL_DOCUMENTS,selected_document_id=None,candidate_top_n=None,max_context_sources=None,context_token_budget=None,minimum_candidate_score=None):
+    def prepare(self,run_id,question='',question_id=None,document_id=None,strategy='structure',top_k=None,chunking_run_id=None,rag_scope=RAGScope.ALL_DOCUMENTS,selected_document_id=None,candidate_top_n=None,max_context_sources=None,context_token_budget=None,minimum_candidate_score=None,rag_pipeline_mode=RAGPipelineMode.BASELINE,rerank_threshold=None,point_only=False):
         rag_scope=RAGScope(rag_scope)
+        rag_pipeline_mode=RAGPipelineMode(rag_pipeline_mode)
+        rerank_threshold=self.runs.config.reranker.threshold if rerank_threshold is None else rerank_threshold
+        if not 0<=rerank_threshold<=1:raise ValueError("Rerank threshold: 0..1")
         if selected_document_id and document_id and selected_document_id!=document_id:raise ValueError('Conflicting selected documents')
         document_id=selected_document_id or document_id
         if top_k is not None and (type(top_k) is not int or not 1<=top_k<=10):raise ValueError('Legacy Top-K: 1–10')
@@ -176,12 +185,16 @@ class RAGComparisonService:
         index=copy.deepcopy(snapshot.get('indexes',{}).get(strategy))
         if chunking_run_id and (not index or index['run_id']!=chunking_run_id):raise ValueError('Активная версия индекса изменилась. Обновите выбор.')
         cfg=Config(**run['config_json']);cfg.llm=self.runs.config.llm.model_copy(deep=True)
+        cfg.reranker=self.runs.config.reranker.model_copy(deep=True)
         cfg.context_expansion_budget=self.runs.config.context_expansion_budget
         cfg.context_diversity_penalty=self.runs.config.context_diversity_penalty
         full_defaults=full_document_defaults()
         full_defaults.update(full_document_id=document_id,full_document_status='NOT_RUN')
         from .rechunk import partitions
-        return dict(**full_defaults,comparison_run_id=uuid4().hex,processing_run_id=run_id,question_id=question_id,question_text=question,
+        return dict(**full_defaults,rag_pipeline_mode=rag_pipeline_mode.value,rerank_threshold=rerank_threshold,
+            original_question=question,retrieval_query=question,reranker_model=cfg.reranker.model,rerank_duration_ms=0,vector_retrieval_duration_ms=0,reranker_settings=cfg.reranker.model_dump(),
+            candidates_after_cleanup=0,candidates_after_rerank=0,candidate_trace=[],rewrite_used=False,rewrite_status='DISABLED',
+            rewrite_duration_ms=0,rewrite_fallback=False,point_only=point_only,comparison_run_id=uuid4().hex,processing_run_id=run_id,question_id=question_id,question_text=question,
             rag_scope=rag_scope.value,selected_document_id=document_id,corpus_id=snapshot.get('corpus',{}).get('corpus_id'),
             index_versions_used=[{'collection':p['collection'],'run_id':p['run_id'],'document_ids':p['document_ids'],'chunks':len(p['chunk_ids'])} for p in partitions(index) if rag_scope==RAGScope.ALL_DOCUMENTS or document_id in p['document_ids']] if index else [],
             corpus_chunks_eligible=len(index.get('chunk_ids',[])) if index else 0,documents_represented=[],
@@ -211,7 +224,7 @@ class RAGComparisonService:
         except Exception:
             r=self.get(key,public=False)
             r['rag_result']=LLMResult(model=r['llm_model'],error={'code':'COMPARISON_ERROR'}).model_dump()
-            if not r.get('no_rag_result'):
+            if not r.get('no_rag_result') and not r.get('point_only'):
                 r['no_rag_result']=LLMResult(model=r['llm_model'],error={'code':'COMPARISON_ERROR'}).model_dump()
             r.update(status='PARTIAL' if r.get('no_rag_answer') or r.get('full_document_answer') else 'FAILED',finished_at=now(),error_json=[{'code':'COMPARISON_ERROR'}])
             self.put(r)
@@ -229,33 +242,40 @@ class RAGComparisonService:
                 r['minimax_requests_count']+=result.get('request_count',0)
                 return result
             except Exception:return LLMResult(model=cfg.llm.model,error={'code':'GENERATION_ERROR'}).model_dump()
-        r['no_rag_result']=generate(None)
-        r['no_rag_answer']=r['no_rag_result']['text'];r['no_rag_duration_ms']=r['no_rag_result']['duration_ms'];self.put(r)
-        try:
-            full=FullDocumentContextBuilder(self.runs).build(r['processing_run_id'],r['document_id'],
-                cfg.llm.full_document_context_budget,r['question_text'],cfg.llm.max_output_tokens)
-            r.update(full_document_context=full,full_document_status=full['status'],
-                full_document_id=full['document_id'],full_document_pages=full['page_count'],
-                full_document_context_tokens=full['token_count'])
+        if not r.get('point_only'):
+            r['no_rag_result']=generate(None)
+            r['no_rag_answer']=r['no_rag_result']['text'];r['no_rag_duration_ms']=r['no_rag_result']['duration_ms'];self.put(r)
+            try:
+                full=FullDocumentContextBuilder(self.runs).build(r['processing_run_id'],r['document_id'],
+                    cfg.llm.full_document_context_budget,r['question_text'],cfg.llm.max_output_tokens)
+                r.update(full_document_context=full,full_document_status=full['status'],
+                    full_document_id=full['document_id'],full_document_pages=full['page_count'],
+                    full_document_context_tokens=full['token_count'])
+                self.put(r)
+                if full['status']=='READY':
+                    answer=generate(full['text'],'full_document')
+                    r.update(full_document_result=answer,full_document_answer=answer['text'],
+                        full_document_duration_ms=answer['duration_ms'],full_document_error_json=answer['error'],
+                        full_document_status=answer['status'] if answer['status'] in ('SUCCESS','TRUNCATED','NOT_CONFIGURED') else 'API_ERROR')
+                    success=answer['status']=='SUCCESS'
+                    r['exhaustive']=dict(mode='EXHAUSTIVE_NO_RAG',path='FAST',scope='DOCUMENT' if r['document_id'] else 'ALL_DOCUMENTS',
+                        documents_total=full.get('documents_total',1),documents_covered=full.get('documents_total',1) if success else 0,
+                        pages_total=full['page_count'],pages_covered=full['page_count'] if success else 0,coverage_percent=100 if success else 0,
+                        batches_total=1,batches_completed=1 if success else 0,input_tokens_processed=answer['usage'].get('prompt_tokens',0),
+                        intermediate_output_tokens=0,final_synthesis_tokens=answer['usage'].get('completion_tokens',0),
+                        minimax_requests=answer.get('request_count',0),map_requests=0,cache_hits=0,duration_ms=answer['duration_ms'],status=r['full_document_status'])
+                elif full['status']=='CONTEXT_TOO_LARGE':
+                    ExhaustiveNoRAG(self.runs,self.llm_factory).run(r,cfg.llm,self.put)
+            except Exception:
+                r.update(full_document_status='BUILD_ERROR',full_document_error_json={'code':'FULL_DOCUMENT_BUILD_ERROR'})
             self.put(r)
-            if full['status']=='READY':
-                answer=generate(full['text'],'full_document')
-                r.update(full_document_result=answer,full_document_answer=answer['text'],
-                    full_document_duration_ms=answer['duration_ms'],full_document_error_json=answer['error'],
-                    full_document_status=answer['status'] if answer['status'] in ('SUCCESS','TRUNCATED','NOT_CONFIGURED') else 'API_ERROR')
-                success=answer['status']=='SUCCESS'
-                r['exhaustive']=dict(mode='EXHAUSTIVE_NO_RAG',path='FAST',scope='DOCUMENT' if r['document_id'] else 'ALL_DOCUMENTS',
-                    documents_total=full.get('documents_total',1),documents_covered=full.get('documents_total',1) if success else 0,
-                    pages_total=full['page_count'],pages_covered=full['page_count'] if success else 0,coverage_percent=100 if success else 0,
-                    batches_total=1,batches_completed=1 if success else 0,input_tokens_processed=answer['usage'].get('prompt_tokens',0),
-                    intermediate_output_tokens=0,final_synthesis_tokens=answer['usage'].get('completion_tokens',0),
-                    minimax_requests=answer.get('request_count',0),map_requests=0,cache_hits=0,duration_ms=answer['duration_ms'],status=r['full_document_status'])
-            elif full['status']=='CONTEXT_TOO_LARGE':
-                ExhaustiveNoRAG(self.runs,self.llm_factory).run(r,cfg.llm,self.put)
-        except Exception:
-            r.update(full_document_status='BUILD_ERROR',full_document_error_json={'code':'FULL_DOCUMENT_BUILD_ERROR'})
-        self.put(r)
-        started=time.perf_counter();pipeline=None;hits=[];error=None;candidates=[]
+        if r['rag_pipeline_mode']=='REWRITE_RERANK':
+            rewrite=QueryRewriteService(self.runs,cfg.llm,self.llm_factory).rewrite(r['question_text'])
+            r.update(retrieval_query=rewrite.retrieval_query,rewrite_status=rewrite.status,rewrite_used=rewrite.status=='SUCCESS',
+                rewrite_duration_ms=rewrite.duration_ms,rewrite_fallback=rewrite.fallback,rewrite_result=rewrite.model_dump())
+            r['minimax_requests_count']+=rewrite.request_count
+            r['generation_call_count']+=int(rewrite.request_count>0)
+        started=time.perf_counter();pipeline=None;hits=[];error=None;candidates=[];ranked_hits=[]
         try:
             index=r['index_snapshot']
             if r['rag_scope']=='SELECTED_DOCUMENT' and not r['selected_document_id']:
@@ -268,15 +288,50 @@ class RAGComparisonService:
                         pipeline=self.runs.pipeline_factory(cfg)
                         pipeline.validate_current_corpus(ResultsService(self.runs).snapshot(r['processing_run_id']))
                         pipeline.resources()
-                        vector=pipeline.provider.encode([r['question_text']])[0]
+                        vector_started=time.perf_counter()
+                        vector=pipeline.provider.encode([r['retrieval_query']])[0]
                         hits=SemanticRetriever(pipeline.provider,pipeline.vectors,pipeline.store).retrieve_vector(vector,index,r.get('candidate_top_n',r['top_k']),retrieval_document(r['rag_scope'],r['selected_document_id']))
+                        r['vector_retrieval_duration_ms']=(time.perf_counter()-vector_started)*1000
                         for hit in hits:
                             hit['source_pages']=[{'recognition_id':s['page']['recognition_id'],'page_number':s['page']['page_number']} for s in hit.get('provenance',{}).get('sources',[])]
                             hit.pop('provenance',None)
-                        candidates,processing=CandidateProcessor(pipeline.store,index,r['retrieval_strategy'],min(cfg.context_expansion_budget,r.get('context_token_budget',cfg.llm.context_budget))).build(hits,r.get('minimum_candidate_score'))
-                        r.update(processing)
+                        processor=CandidateProcessor(pipeline.store,index,r['retrieval_strategy'],min(cfg.context_expansion_budget,r.get('context_token_budget',cfg.llm.context_budget)))
+                        cleaned,diagnostics=processor.dedup(hits,r.get('minimum_candidate_score'))
+                        r.update(candidates_after_cleanup=len(cleaned),candidates_after_dedup=len(cleaned),dedup_diagnostics=diagnostics)
+                        ranked_hits=cleaned
+                        raw_by_id={h['chunk_id']:h for h in hits}
+                        trace=[dict(chunk_id=d['chunk_id'],retrieval_rank=d['rank'],retrieval_score=raw_by_id[d['chunk_id']]['score'],
+                            file_title=raw_by_id[d['chunk_id']].get('file_name',''),section=raw_by_id[d['chunk_id']].get('section',''),
+                            page_start=raw_by_id[d['chunk_id']]['page_start'],accepted=False,filter_reason=d['reason']) for d in diagnostics]
+                        if r['rag_pipeline_mode']!='BASELINE':
+                            provider_key=json.dumps(cfg.reranker.model_dump(),sort_keys=True)
+                            reranker=self.rerankers.setdefault(provider_key,self.reranker_factory(cfg.reranker)) if provider_key not in self.rerankers else self.rerankers[provider_key]
+                            inputs=[RerankCandidate(chunk_id=h['chunk_id'],document_id=h['document_id'],text=h['text'],
+                                file_title=h.get('file_name',''),section=h.get('section',''),page_start=h['page_start'],page_end=h['page_end'],
+                                retrieval_rank=h['rank'],retrieval_score=h['score']) for h in cleaned]
+                            tick=time.perf_counter()
+                            try:reranked=reranker.rerank(r['question_text'],inputs)
+                            finally:r['rerank_duration_ms']=(time.perf_counter()-tick)*1000
+                            originals={h['chunk_id']:h for h in cleaned};ranked_hits=[]
+                            if len(reranked)!=len(cleaned) or {c.chunk_id for c in reranked}!=set(originals):raise RerankerUnavailable('INVALID_RERANK_OUTPUT')
+                            for c in reranked:
+                                c.accepted=c.rerank_score>=r['rerank_threshold']
+                                c.filter_reason=None if c.accepted else 'BELOW_RERANK_THRESHOLD'
+                                trace.append(c.model_dump(exclude={'text','metadata'}))
+                                if c.accepted:ranked_hits.append({**originals[c.chunk_id],'rerank_score':c.rerank_score,'rerank_rank':c.rerank_rank})
+                            r['reranker_status']=reranker.status() if hasattr(reranker,'status') else {'status':'READY'}
+                            if not ranked_hits:error='NO_RELEVANT_CONTEXT'
+                        else:
+                            trace.extend(dict(chunk_id=h['chunk_id'],document_id=h['document_id'],file_title=h.get('file_name',''),section=h.get('section',''),
+                                page_start=h['page_start'],page_end=h['page_end'],retrieval_rank=h['rank'],retrieval_score=h['score'],
+                                rerank_rank=None,rerank_score=None,accepted=True,filter_reason=None) for h in cleaned)
+                        r.update(candidate_trace=trace,candidates_after_rerank=len(ranked_hits))
+                        candidates,processing=processor.build(ranked_hits,precleaned=True)
+                        r.update({k:v for k,v in processing.items() if k not in ('candidates_after_dedup','dedup_diagnostics')})
                     finally:
                         if pipeline:pipeline.close()
+        except RerankerUnavailable:
+            error='RERANKER_UNAVAILABLE'
         except Exception:
             error='RETRIEVAL_ERROR'
         finally:
@@ -284,7 +339,8 @@ class RAGComparisonService:
         r['retrieved_sources']=hits;r['retrieved_count']=len(hits);r['retrieved_chunk_ids_json']=[h['chunk_id'] for h in hits]
         r['documents_represented']=sorted({h['document_id'] for h in hits})
         r.update(candidates_retrieved=len(hits),candidate_document_ids=r['documents_represented'])
-        r['source_metrics']=source_metrics(hits,r['expected_sources'],r.get('candidate_top_n',r['top_k']))
+        r['retrieval_source_metrics']=source_metrics(hits,r['expected_sources'],r.get('candidate_top_n',r['top_k']))
+        r['source_metrics']=source_metrics(hits if r['rag_pipeline_mode']=='BASELINE' else ranked_hits,r['expected_sources'],r.get('candidate_top_n',r['top_k']))
         budget=r.get('context_token_budget',cfg.llm.context_budget)
         selected=ContextSelector().select(candidates,r.get('max_context_sources',r['top_k']),budget,RAGContextBuilder(),cfg.context_diversity_penalty)
         context=RAGContextBuilder().build(selected,budget)
@@ -297,6 +353,9 @@ class RAGComparisonService:
             r['rag_result']=LLMResult(model=cfg.llm.model,status=error or 'EMPTY_RETRIEVAL',error={'code':error or 'EMPTY_RETRIEVAL'}).model_dump()
         else:r['rag_result']=generate(context['text'])
         r['rag_answer']=r['rag_result']['text'];r['rag_duration_ms']=r['rag_result']['duration_ms']
+        if r.get('point_only'):
+            r.update(status='COMPLETED' if r['rag_result']['status']=='SUCCESS' else 'FAILED',finished_at=now(),error_json=[r['rag_result']['error']] if r['rag_result']['error'] else [])
+            self.put(r);return self.get(key)
         branches=[r['no_rag_result'],r['rag_result']]
         r['error_json']=[dict(branch=name,**result['error']) for name,result in zip(('NO_RAG','RAG'),branches) if result['error']]
         full_result=r['full_document_result'] or {'status':r['full_document_status'],'text':''}
@@ -307,12 +366,15 @@ class RAGComparisonService:
         r['finished_at']=now();self.put(r)
         return self.get(key)
 
-    def start_all(self,run_id,**kwargs):
+    def start_all(self,run_id,compare_modes=False,**kwargs):
         questions=self.questions.list()
         if not questions:raise ValueError('Добавьте контрольные вопросы')
-        records=[self.prepare(run_id,question_id=q['question_id'],**kwargs) for q in questions]
+        if compare_modes:
+            kwargs.pop('rag_pipeline_mode',None)
+            records=[self.prepare(run_id,question_id=q['question_id'],rag_pipeline_mode=mode,point_only=True,**kwargs) for q in questions for mode in RAGPipelineMode]
+        else:records=[self.prepare(run_id,question_id=q['question_id'],**kwargs) for q in questions]
         for r in records:self.put(r)
-        batch=dict(batch_id=uuid4().hex,processing_run_id=run_id,status='QUEUED',comparison_ids=[r['comparison_run_id'] for r in records],
+        batch=dict(batch_id=uuid4().hex,day23_evaluation=compare_modes,processing_run_id=run_id,status='QUEUED',comparison_ids=[r['comparison_run_id'] for r in records],
             total=len(records),current=0,completed=0,failed=0,partial=0,created_at=now(),finished_at=None,
             owner_pid=os.getpid(),owner_started=psutil.Process().create_time())
         self.put(batch,'rag_batches')

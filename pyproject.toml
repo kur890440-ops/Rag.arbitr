@@ -7,7 +7,7 @@ name = "rag-arbiter"
 version = "0.1.0"
 description = "Local scanned-document chunking experiment, Day 21"
 requires-python = ">=3.11,<3.14"
-dependencies = ["docling[rapidocr]==2.130.0", "rapidocr==3.9.2", "onnxruntime==1.30.0", "sentence-transformers==6.1.0", "qdrant-client==1.19.1", "pypdfium2==5.13.0", "pillow==12.3.0", "pydantic==2.13.5", "numpy==2.5.3", "fastapi==0.141.1", "uvicorn==0.54.0", "python-multipart==0.0.32", "jinja2==3.1.6", "markdown-it-py==4.2.0", "portalocker==3.2.0", "psutil==7.2.2"]
+dependencies = ["docling[rapidocr]==2.130.0", "rapidocr==3.9.2", "onnxruntime==1.30.0", "sentence-transformers==6.1.0", "transformers==5.17.0", "qdrant-client==1.19.1", "pypdfium2==5.13.0", "pillow==12.3.0", "pydantic==2.13.5", "numpy==2.5.3", "fastapi==0.141.1", "uvicorn==0.54.0", "python-multipart==0.0.32", "jinja2==3.1.6", "markdown-it-py==4.2.0", "portalocker==3.2.0", "psutil==7.2.2"]
 
 [project.optional-dependencies]
 test = ["pytest==9.1.1", "reportlab==5.0.1"]

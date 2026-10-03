@@ -26,3 +26,5 @@ data/web-smoke/
 !.env.example
 data/day22/
 /config.toml
+data/models/
+data/day23/

@@ -47,9 +47,11 @@ class RecognitionConfig(BaseModel):
 
 
 from .llm import LLMConfig
+from .reranking import RerankerConfig
 
 
 class Config(BaseModel):
+    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     recognition: RecognitionConfig = Field(default_factory=RecognitionConfig)
     corpus_path: Path = Path("data/corpus")

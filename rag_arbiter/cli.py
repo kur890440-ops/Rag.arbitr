@@ -31,6 +31,9 @@ def main(argv=None):
     rag.add_argument('--run-id', required=True)
     rag.add_argument('--document-id')
     rag.add_argument('--rag-scope',choices=['ALL_DOCUMENTS','SELECTED_DOCUMENT'],default='ALL_DOCUMENTS')
+    rag.add_argument('--rag-mode', choices=['BASELINE','RERANK','REWRITE_RERANK'],default='BASELINE')
+    rag.add_argument('--rerank-threshold',type=float,default=None)
+    rag.add_argument('--point-only',action='store_true')
     rag.add_argument('--strategy', choices=['fixed','structure'], default='structure')
     rag.add_argument('--top-k', type=int, default=None, help='Legacy alias for max-context-sources')
     rag.add_argument('--candidate-top-n', type=int, default=None)
@@ -79,7 +82,7 @@ def main(argv=None):
             from .application.rag import RAGComparisonService
             service = RAGComparisonService(application)
             key = service.start(args.run_id, question=args.question, document_id=args.document_id,rag_scope=args.rag_scope,
-                                strategy=args.strategy, top_k=args.top_k, candidate_top_n=args.candidate_top_n, max_context_sources=args.max_context_sources, context_token_budget=args.context_token_budget, background=False)
+                                rag_pipeline_mode=args.rag_mode,rerank_threshold=args.rerank_threshold,point_only=args.point_only,strategy=args.strategy, top_k=args.top_k, candidate_top_n=args.candidate_top_n, max_context_sources=args.max_context_sources, context_token_budget=args.context_token_budget, background=False)
             result = service.get(key)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0 if result['status']=='COMPLETED' else 2

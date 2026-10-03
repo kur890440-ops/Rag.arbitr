@@ -9,7 +9,7 @@ class MetadataStore:
               "evaluation_runs", "retrieval_results", "recognition_metadata", "processing_runs",
               "processing_run_errors", "uploads", "recognition_cache", "chunk_settings", "normalized_documents",
               "rag_evaluation_questions", "rag_comparison_runs", "rag_batches",
-              "exhaustive_batch_results", "exhaustive_map_cache")
+              "exhaustive_batch_results", "exhaustive_map_cache", "query_rewrite_cache")
 
     def __init__(self, path):
         self.db = sqlite3.connect(path, timeout=30)

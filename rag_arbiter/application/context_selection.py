@@ -27,6 +27,8 @@ class ContextCandidate(BaseModel):
     page_end: int
     anchor_chunk_ids: list[str]
     retrieval_score: float
+    rerank_score: float | None = None
+    rerank_rank: int | None = None
     context_text: str
     context_tokens: int
     expansion_type: str
@@ -40,7 +42,7 @@ class ContextCandidate(BaseModel):
 
     def as_hit(self):
         return dict(source_id=self.source_id,document_id=self.document_id,file_name=self.file_title,title=self.file_title,
-            section=self.section,page_start=self.page_start,page_end=self.page_end,chunk_id=self.anchor_chunk_ids[0],
+            rerank_score=self.rerank_score,rerank_rank=self.rerank_rank,section=self.section,page_start=self.page_start,page_end=self.page_end,chunk_id=self.anchor_chunk_ids[0],
             anchor_chunk_ids=self.anchor_chunk_ids,expanded_chunk_ids=self.expanded_chunk_ids,expansion_type=self.expansion_type,
             original_ranks=self.original_ranks,rank=min(self.original_ranks),score=self.retrieval_score,text=self.context_text,
             content_hash=digest(self.context_text),content_hashes=self.content_hashes,source_pages=self.source_pages,
@@ -71,6 +73,8 @@ class CandidateProcessor:
             key=hit['chunk_id'];chash=hit.get('content_hash') or digest(hit['text'])
             reason=None
             if key not in self.active:reason='inactive'
+            elif hit['document_id']!=self.active[key]['document_id']:reason='wrong_document'
+            elif self.index.get('corpus_id') and hit.get('corpus_id',self.index['corpus_id'])!=self.index['corpus_id']:reason='wrong_corpus'
             elif minimum_score is not None and hit['score']<minimum_score:reason='below_threshold'
             elif key in ids:reason='duplicate_chunk_id'
             elif chash in hashes:reason='duplicate_content_hash'
@@ -95,7 +99,7 @@ class CandidateProcessor:
         ends=[b['page_number'] for b in blocks] if blocks else [c['page_end'] for c in chunks]
         return ContextCandidate(source_id=digest([anchor['document_id'],text]),document_id=anchor['document_id'],file_title=anchor.get('file_name') or anchor.get('title',''),
             section=anchor.get('section',''),page_start=min(starts),page_end=max(ends),anchor_chunk_ids=[anchor['chunk_id']],
-            retrieval_score=anchor['score'],context_text=text,context_tokens=len(text.encode()),expansion_type=kind,
+            retrieval_score=anchor['score'],rerank_score=anchor.get('rerank_score'),rerank_rank=anchor.get('rerank_rank'),context_text=text,context_tokens=len(text.encode()),expansion_type=kind,
             content_hashes=sorted({c.get('content_hash') or digest(c['text']) for c in chunks}),original_ranks=[anchor['rank']],
             expanded_chunk_ids=[c['chunk_id'] for c in chunks],source_pages=[unique[k] for k in sorted(unique)],source_block_ids=block_ids,
             chunking_run_ids=sorted({self.versions[c['chunk_id']] for c in chunks}),anchor=anchor)
@@ -111,8 +115,8 @@ class CandidateProcessor:
             text+=other[overlap:] if overlap else '\n'+other
         return text
 
-    def build(self,hits,minimum_score=None):
-        deduped,diagnostics=self.dedup(hits,minimum_score)
+    def build(self,hits,minimum_score=None,precleaned=False):
+        deduped,diagnostics=(hits,[]) if precleaned else self.dedup(hits,minimum_score)
         groups={}
         for hit in deduped:groups.setdefault((hit['document_id'],hit.get('section','')),[]).append(hit)
         candidates=[];retrieved={h['chunk_id'] for h in deduped}
@@ -162,7 +166,7 @@ class ContextSelector:
     def select(self,candidates,max_sources,budget,builder,diversity_penalty=0.04):
         selected=[];remaining=list(candidates);docs={};sections={}
         while remaining and len(selected)<max_sources:
-            remaining.sort(key=lambda c:(-(c.retrieval_score-diversity_penalty*docs.get(c.document_id,0)-diversity_penalty/2*sections.get((c.document_id,c.section),0)),min(c.original_ranks),c.source_id))
+            remaining.sort(key=lambda c:(-((c.rerank_score if c.rerank_score is not None else c.retrieval_score)-diversity_penalty*docs.get(c.document_id,0)-diversity_penalty/2*sections.get((c.document_id,c.section),0)),min(c.original_ranks),c.source_id))
             candidate=remaining.pop(0)
             if any(near_duplicate(candidate.as_hit(),s.as_hit()) for s in selected):continue
             trial=builder.build(selected+[candidate],budget)
