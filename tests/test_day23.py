@@ -34,7 +34,7 @@ def test_rerank_original_scores_order_threshold_trace_and_expansion(ragweb):
     assert 'До / после reranking' in html
     # Shared service keeps the same provider across queries.
     r2=compare(c,rid,rag_pipeline_mode='RERANK',rerank_threshold=1)
-    assert r2['rag_result']['status']=='NO_RELEVANT_CONTEXT' and not r2['sources']
+    assert r2['rag_result']['status']=='INSUFFICIENT_CONTEXT' and not r2['sources']
     assert len(c.app.state.rag.rerankers)==1
     fake.fail=True
     r3=compare(c,rid,rag_pipeline_mode='RERANK')
@@ -63,7 +63,7 @@ def test_rewrite_only_retrieval_original_reranker_final_and_cache(ragweb):
     assert again['rewrite_result']['cache_hit'] and len(llm.calls)==n+3
     # No rewrite in baseline and no reranker in either no-RAG branch.
     fake.calls.clear();base=compare(c,rid,rag_pipeline_mode='BASELINE')
-    assert not fake.calls and base['rewrite_status']=='DISABLED'
+    assert all(q!='Question' for q,_ in fake.calls) and base['rewrite_status']=='DISABLED'
 
 
 def test_rewrite_failure_and_cache_invalidation(ragweb):

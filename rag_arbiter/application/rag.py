@@ -17,6 +17,7 @@ from .context_selection import ContextCandidate, CandidateProcessor, ContextSele
 from ..scope import RAGScope, retrieval_document
 from ..reranking import RAGPipelineMode, LocalReranker, RerankCandidate, RerankerUnavailable
 from .query_rewrite import QueryRewriteService
+from .grounding import grounded_generation, CitationBuilder, GroundingResult, REFUSAL
 
 
 class ExpectedSource(BaseModel):
@@ -37,6 +38,7 @@ class ExpectedSource(BaseModel):
 
 
 class ControlQuestion(BaseModel):
+    expected_unanswerable: bool = False
     question: str = Field(min_length=1,max_length=4000)
     expected_answer: str = Field(max_length=12000)
     expected_sources: list[ExpectedSource] = Field(default_factory=list,max_length=20)
@@ -158,7 +160,7 @@ class RAGComparisonService:
     def put(self,r,table='rag_comparison_runs'):
         with self.runs.db() as store:store.put(table,r['comparison_run_id'] if table=='rag_comparison_runs' else r['batch_id'],r)
 
-    def prepare(self,run_id,question='',question_id=None,document_id=None,strategy='structure',top_k=None,chunking_run_id=None,rag_scope=RAGScope.ALL_DOCUMENTS,selected_document_id=None,candidate_top_n=None,max_context_sources=None,context_token_budget=None,minimum_candidate_score=None,rag_pipeline_mode=RAGPipelineMode.BASELINE,rerank_threshold=None,point_only=False):
+    def prepare(self,run_id,question='',question_id=None,document_id=None,strategy='structure',top_k=None,chunking_run_id=None,rag_scope=RAGScope.ALL_DOCUMENTS,selected_document_id=None,candidate_top_n=None,max_context_sources=None,context_token_budget=None,minimum_candidate_score=None,rag_pipeline_mode=RAGPipelineMode.BASELINE,rerank_threshold=None,point_only=False,claim_support_threshold=None):
         rag_scope=RAGScope(rag_scope)
         rag_pipeline_mode=RAGPipelineMode(rag_pipeline_mode)
         rerank_threshold=self.runs.config.reranker.threshold if rerank_threshold is None else rerank_threshold
@@ -186,6 +188,9 @@ class RAGComparisonService:
         if chunking_run_id and (not index or index['run_id']!=chunking_run_id):raise ValueError('Активная версия индекса изменилась. Обновите выбор.')
         cfg=Config(**run['config_json']);cfg.llm=self.runs.config.llm.model_copy(deep=True)
         cfg.reranker=self.runs.config.reranker.model_copy(deep=True)
+        if claim_support_threshold is not None:
+            cfg.llm=cfg.llm.model_copy(update={"claim_support_threshold":claim_support_threshold})
+            cfg.llm=LLMConfig.model_validate(cfg.llm.model_dump() | {"api_key":cfg.llm.api_key})
         cfg.context_expansion_budget=self.runs.config.context_expansion_budget
         cfg.context_diversity_penalty=self.runs.config.context_diversity_penalty
         full_defaults=full_document_defaults()
@@ -209,6 +214,7 @@ class RAGComparisonService:
             no_rag_answer='',rag_answer='',no_rag_duration_ms=0,rag_duration_ms=0,retrieval_duration_ms=0,
             no_rag_result=None,rag_result=None,sources=[],retrieved_sources=[],context_text='',source_metrics={},
             expected_answer=q['expected_answer'] if q else '',expected_sources=q['expected_sources'] if q else [],
+            expected_unanswerable=q.get('expected_unanswerable',False) if q else False,
             status='QUEUED',error_json=[],created_at=now(),started_at=None,finished_at=None,
             index_snapshot=index,config_snapshot=cfg.model_dump(mode='json'),owner_pid=os.getpid(),owner_started=psutil.Process().create_time())
 
@@ -349,12 +355,28 @@ class RAGComparisonService:
             context_candidate_metadata_json=[c.model_dump(exclude={'anchor','context_text'}) for c in candidates])
         r.update(context_text=context['text'],context_tokens=context['token_count'],used_count=context['used_count'],sources=context['sources'],used_chunk_ids_json=context['used_chunk_ids'])
         self.put(r)
-        if error or not context['sources']:
+        if error in (None,'NO_RELEVANT_CONTEXT') and not context['sources']:
+            ground=GroundingResult(refusal_reason=error or 'ZERO_CONTEXTS')
+            r.update(grounding_status='INSUFFICIENT_CONTEXT',grounding_result=ground.model_dump(),
+                grounding_diagnostics=[{'relevance_gate':'REJECTED','cause':ground.refusal_reason}],
+                claims_json=[],citations_json=[],repair_used=False,refusal_reason=ground.refusal_reason,
+                claim_support_threshold=cfg.llm.claim_support_threshold)
+            r['rag_result']=LLMResult(model=cfg.llm.model,status='INSUFFICIENT_CONTEXT',text=REFUSAL).model_dump()
+        elif error:
             r['rag_result']=LLMResult(model=cfg.llm.model,status=error or 'EMPTY_RETRIEVAL',error={'code':error or 'EMPTY_RETRIEVAL'}).model_dump()
-        else:r['rag_result']=generate(context['text'])
+        else:
+            provider_key=json.dumps(cfg.reranker.model_dump(),sort_keys=True)
+            if provider_key not in self.rerankers:self.rerankers[provider_key]=self.reranker_factory(cfg.reranker)
+            try:
+                with self.runs.db() as store:
+                    r['rag_result']=grounded_generation(r,context['text'],generate,CitationBuilder(store),
+                        self.rerankers[provider_key],cfg.llm.claim_support_threshold)
+            except RerankerUnavailable:
+                r.update(grounding_status='ERROR',claims_json=[],citations_json=[])
+                r['rag_result']=LLMResult(model=cfg.llm.model,status='RERANKER_UNAVAILABLE',error={'code':'RERANKER_UNAVAILABLE'}).model_dump()
         r['rag_answer']=r['rag_result']['text'];r['rag_duration_ms']=r['rag_result']['duration_ms']
         if r.get('point_only'):
-            r.update(status='COMPLETED' if r['rag_result']['status']=='SUCCESS' else 'FAILED',finished_at=now(),error_json=[r['rag_result']['error']] if r['rag_result']['error'] else [])
+            r.update(status='COMPLETED' if r['rag_result']['status'] in ('SUCCESS','INSUFFICIENT_CONTEXT') else 'FAILED',finished_at=now(),error_json=[r['rag_result']['error']] if r['rag_result']['error'] else [])
             self.put(r);return self.get(key)
         branches=[r['no_rag_result'],r['rag_result']]
         r['error_json']=[dict(branch=name,**result['error']) for name,result in zip(('NO_RAG','RAG'),branches) if result['error']]
@@ -362,7 +384,7 @@ class RAGComparisonService:
         branches.append(full_result)
         if r['full_document_status']!='SUCCESS':
             r['error_json'].append(dict(branch='FULL_DOCUMENT',code=r['full_document_error_json'].get('code',r['full_document_status'])))
-        r['status']='COMPLETED' if all(x['status']=='SUCCESS' for x in branches) else 'PARTIAL' if any(x['status']=='SUCCESS' or x['text'] for x in branches) else 'FAILED'
+        r['status']='COMPLETED' if all(x['status'] in ('SUCCESS','INSUFFICIENT_CONTEXT') for x in branches) else 'PARTIAL' if any(x['status']=='SUCCESS' or x['text'] for x in branches) else 'FAILED'
         r['finished_at']=now();self.put(r)
         return self.get(key)
 

@@ -1,4 +1,5 @@
 import json
+import re
 from urllib.error import HTTPError
 from unittest.mock import patch
 import pytest
@@ -91,6 +92,12 @@ class FakeLLM:
         self.calls.append(request)
         if self.fail==('rag' if request.context else 'no_rag'):
             return LLMResult(model=self.cfg.model,error={'code':'TIMEOUT'})
+        if request.context_type=='grounded_rag':
+            fact='Оплата через десять дней.'
+            parts=re.split(r'(?m)^(\{"reference":[^\n]+\})\n',request.context)
+            ref=next((json.loads(parts[i])['reference'].strip('[]') for i in range(1,len(parts),2) if fact in parts[i+1]),None)
+            body=dict(answer=fact,claims=[dict(claim_id='C1',text=fact,supporting_source_ids=[ref])]) if ref else dict(answer='',claims=[],insufficient_context=True)
+            return LLMResult(model=self.cfg.model,text=json.dumps(body),status='SUCCESS',duration_ms=2)
         return LLMResult(model=self.cfg.model,text='Answer [S1]' if request.context else 'No context',status='SUCCESS',duration_ms=2)
 
 
@@ -98,6 +105,12 @@ class FakeLLM:
 def ragweb(config):
     runtime=FakeRuntime();llm=FakeLLM(config.llm)
     with TestClient(create_app(config,factory(runtime),lambda cfg:llm),base_url='http://127.0.0.1',headers=HEADERS) as client:
+        from rag_arbiter.reranking import RerankedCandidate
+        class SupportReranker:
+            def status(self):return {'status':'READY','loaded':True,'model':'fake','device':'cpu'}
+            def rerank(self,question,candidates):
+                return [RerankedCandidate(**c.model_dump(),rerank_rank=i+1,rerank_score=.99) for i,c in enumerate(candidates)]
+        client.app.state.rag.reranker_factory=lambda cfg:SupportReranker()
         uid=upload_pdf(client,config)
         other=config.corpus_path/'other.pdf';make_scanned_pdf(other,2)
         uid2=client.post('/api/uploads',files={'files':('other.pdf',other.read_bytes(),'application/pdf')}).json()['uploads'][0]['upload_id']
@@ -134,7 +147,7 @@ def test_real_qdrant_both_strategies_scope_and_no_reindex(ragweb):
     assert queries==['Question']*4 and runtime.calls==calls
     assert sum(call.context is None for call in llm.calls)==4
     assert sum(call.context_type=='full_document' for call in llm.calls)==4
-    assert sum(call.context is not None and call.context_type=='rag' for call in llm.calls)==4
+    assert sum(call.context is not None and call.context_type=='grounded_rag' for call in llm.calls)==4
     assert c.post(f'/api/runs/{rid}/rag/compare',json={'question':'q','top_k':11}).status_code==422
     assert c.post(f'/api/runs/{rid}/rag/compare',json={'question':'q','chunking_run_id':'wrong'}).status_code==400
 
@@ -203,7 +216,7 @@ def test_missing_index_empty_retrieval_and_search_failure(ragweb):
     record=svc.prepare(rid,question='q');record['index_snapshot']=None;svc.put(record)
     r=svc.execute(record['comparison_run_id']);assert r['rag_result']['status']=='NO_ACTIVE_INDEX' and r['status']=='PARTIAL'
     with patch('rag_arbiter.application.rag.SemanticRetriever.retrieve_vector',return_value=[]):
-        assert compare(c,rid)['rag_result']['status']=='EMPTY_RETRIEVAL'
+        assert compare(c,rid)['rag_result']['status']=='INSUFFICIENT_CONTEXT'
     with patch('rag_arbiter.application.rag.SemanticRetriever.retrieve_vector',side_effect=RuntimeError('private')):
         r=compare(c,rid);assert r['status']=='PARTIAL' and r['rag_result']['status']=='RETRIEVAL_ERROR'
         assert 'private' not in json.dumps(r)

@@ -31,6 +31,9 @@ class MapLLM:
             quote=u['excerpts'][0]['ref'] if 'excerpts' in u else source[-15:]
             findings=[] if irrelevant else [dict(unit_id=u['unit_id'],normalized_key='category',statement='fact',category='type',**({'evidence_ref':quote} if 'excerpts' in u else {'evidence_text':quote}))]
             text=json.dumps(dict(relevant=not irrelevant,findings=findings,limitations=[]))
+        elif request.context_type=='grounded_rag':
+            fact='Оплата через десять дней.'
+            text=json.dumps(dict(answer=fact,claims=[dict(claim_id='C1',text=fact,supporting_source_ids=['S1'])]))
         else:text='Краткий ответ.'
         return LLMResult(model='fake',status='SUCCESS',text=text,request_count=1,usage={'prompt_tokens':20,'completion_tokens':10})
 
@@ -149,7 +152,7 @@ def test_integrated_three_panels_fast_and_batched(ragweb):
     assert r['full_document_status']=='SUCCESS' and r['exhaustive']['path']=='BATCHED',r['full_document_error_json']
     assert r['exhaustive']['documents_covered']==2 and r['exhaustive']['pages_covered']==3
     assert llm.calls[0].context is None and llm.calls[0].question=='Question'
-    assert llm.calls[-1].context_type=='rag' and llm.calls[-1].context==r['context_text']
+    assert llm.calls[-1].context_type=='grounded_rag' and llm.calls[-1].context==r['context_text']
     assert runtime.calls==before
     html=c.get('/ui/rag/comparisons/'+r['comparison_run_id']).text
     assert 'ПОЛНЫЙ ПРОСМОТР' in html and 'Покрытие: 100' in html and 'query-mode' not in html

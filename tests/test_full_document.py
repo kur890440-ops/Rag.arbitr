@@ -57,7 +57,7 @@ def test_three_way_persistence_and_full_panel(ragweb):
     assert r['generation_call_count']==3 and runtime.calls==before
     assert len(llm.calls)==3 and llm.calls[0].context is None
     assert llm.calls[1].context_type=='full_document' and '[PAGE 2]' in llm.calls[1].context
-    assert llm.calls[2].context==r['context_text'] and llm.calls[2].context_type=='rag'
+    assert llm.calls[2].context==r['context_text'] and llm.calls[2].context_type=='grounded_rag'
     assert r['used_count']==1 and r['max_context_sources']==1
     assert r['candidate_top_n']==20 and r['retrieved_count']>1
     html=c.get('/ui/rag/comparisons/'+r['comparison_run_id']).text

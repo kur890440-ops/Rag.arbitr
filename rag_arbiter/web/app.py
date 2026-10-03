@@ -59,6 +59,7 @@ class SearchRequest(BaseModel):
 
 
 class RAGRequest(BaseModel):
+    claim_support_threshold: float | None = Field(None,ge=0,le=1,allow_inf_nan=False)
     rag_pipeline_mode: RAGPipelineMode = RAGPipelineMode.BASELINE
     rerank_threshold: float | None = Field(None,ge=0,le=1)
     question: str = Field('',max_length=4000)
@@ -429,7 +430,8 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
         records=[service.get(k) for k in batch['comparison_ids']] if batch else []
         grouped={}
         for r in records:grouped.setdefault(r['question_text'],{})[r['rag_pipeline_mode']]=r
-        return render(request,'rag_evaluation.html',batch=batch,grouped=grouped)
+        from ..application.grounding import evaluate_grounding
+        return render(request,'rag_evaluation.html',batch=batch,grouped=grouped,grounding=evaluate_grounding(records))
 
     @app.get('/api/rag/comparisons/{comparison_id}')
     def rag_result(request: Request,comparison_id: str):

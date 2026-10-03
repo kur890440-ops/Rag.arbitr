@@ -1,5 +1,7 @@
 # rag.арбитр — Day 21 Document Indexing / Day 22 First RAG Query
 
+Day 24: Point RAG now validates structured claims, extracts exact SQLite citations, reuses the local reranker for support checks, and refuses unsupported answers after at most one repair. See [DAY24_REPORT.md](DAY24_REPORT.md) for real evaluation results and conservative-validation limitations.
+
 Day 23: Point RAG supports BASELINE / RERANK / REWRITE_RERANK, local `BAAI/bge-reranker-v2-m3`, configurable sigmoid threshold, original-question reranking, cached query-only rewrite and before/after trace. Default mode remains Baseline; candidate_top_n=20 and max_context_sources=5. Evaluation compares modes without exhaustive calls. See [DAY23_REPORT.md](DAY23_REPORT.md) for setup, measured CPU latency, real results and limitations.
 
 

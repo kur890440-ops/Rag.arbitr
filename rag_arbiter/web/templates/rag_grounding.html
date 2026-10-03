@@ -1,0 +1,16 @@
+{% if result.get('grounding_status') %}
+{% set g=result.get('grounding_result',{}) %}
+<div class="grounding-summary"><strong>Проверка · {{result.grounding_status}}</strong>
+<p>{{g.get('claims_total',0)}} утверждений · {{g.get('claims_supported',0)}} подтверждены · {{g.get('claims_unsupported',0)}} не подтверждены<br>
+{{g.get('sources_count',0)}} источников · {{g.get('citations_count',0)}} цитат · repair: {{'да' if g.get('repair_used') else 'нет'}}</p></div>
+<h3>ТОЧНЫЕ ЦИТАТЫ · {{result.get('citations_json',[])|length}}</h3>
+{% for c in result.get('citations_json',[]) %}
+<div class="grounded-citation"><strong>{{c.claim_id}} · [{{c.source_id}}] {{c.file_title}}</strong>
+<p class="muted">стр. {{c.page_start}} · {{c.section}} · chunk {{c.chunk_id}}</p>
+<blockquote>{{c.quote}}</blockquote><small>Exact: {{c.exact_match}} · Claim support: {{'%.3f'|format(c.support_score)}}</small>
+{% if c.locator.recognition_id %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{c.locator.recognition_id}}">Показать страницу {{c.page_start}}</button>{% endif %}</div>
+{% endfor %}
+<details><summary>Grounding · диагностика</summary><p>Порог поддержки: {{result.get('claim_support_threshold')}} · Причина отказа: {{result.get('refusal_reason') or '—'}}</p>
+<p>Поддержка оценивается локальным reranker; это проверка смысловой близости, а не доказательство логического следования.</p>
+<pre>{{result.get('grounding_result',{})|tojson(indent=2)}}</pre><pre>{{result.get('grounding_diagnostics',[])|tojson(indent=2)}}</pre></details>
+{% endif %}

@@ -2,7 +2,7 @@
 let ragView = 0, ragBatchView = 0;
 let ragScope='ALL_DOCUMENTS';
 const ragJSON = data => ({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-function ragSettings(){return {rag_pipeline_mode:$('rag-mode').value,rerank_threshold:Number($('rag-threshold').value),selected_document_id:selectedDocument||null,rag_scope:ragScope,strategy:$('rag-strategy').value,candidate_top_n:Number($('rag-candidates').value),max_context_sources:Number($('rag-top-k').value),context_token_budget:Number($('rag-context-budget').value),chunking_run_id:$('rag-strategy').selectedOptions[0].dataset.indexId||null};}
+function ragSettings(){return {claim_support_threshold:Number($('rag-support-threshold').value),rag_pipeline_mode:$('rag-mode').value,rerank_threshold:Number($('rag-threshold').value),selected_document_id:selectedDocument||null,rag_scope:ragScope,strategy:$('rag-strategy').value,candidate_top_n:Number($('rag-candidates').value),max_context_sources:Number($('rag-top-k').value),context_token_budget:Number($('rag-context-budget').value),chunking_run_id:$('rag-strategy').selectedOptions[0].dataset.indexId||null};}
 function ragIndexLabel(){if($('rag-active-index')){$('rag-scope').value=ragScope;$('rag-active-index').textContent=`RAG: ${ragScope==='ALL_DOCUMENTS'?'Все документы':'Выбранный файл'} · ${$('rag-strategy').selectedOptions[0].textContent} · Candidates ${$('rag-candidates').value} / Contexts ${$('rag-top-k').value} · ChunkingRun: ${$('rag-strategy').selectedOptions[0].dataset.indexId||'Индекс не построен'}`;}}
 async function ragFragment(url,target){if($(target))await htmx.ajax('GET',url,{target:'#'+target,swap:'innerHTML'});}
 async function ragPoll(id,batch=false){
@@ -25,7 +25,7 @@ async function ragEditor(id=null){
   const q=id?(await api('/api/rag/questions')).find(q=>q.question_id===id):{question:$('rag-question').value,expected_answer:'',expected_sources:[]};
   if(!q)return;
   const form=$('rag-edit-form');form.elements.question_id.value=id||'';form.elements.question.value=q.question;
-  form.elements.expected_answer.value=q.expected_answer;form.elements.expected_sources.value=JSON.stringify(q.expected_sources,null,2);
+  form.elements.expected_unanswerable.checked=!!q.expected_unanswerable;form.elements.expected_answer.value=q.expected_answer;form.elements.expected_sources.value=JSON.stringify(q.expected_sources,null,2);
   $('rag-editor-error').textContent='';$('rag-question-editor').showModal();
 }
 document.addEventListener('htmx:afterSwap',event=>{if(event.detail.target.id==='workspace'){ragView++;ragBatchView++;ragIndexLabel();}});
@@ -38,7 +38,7 @@ document.addEventListener('submit',async event=>{
     if(event.target.id==='rag-form')await ragCompare();
     else{
       const fields=event.target.elements,id=fields.question_id.value;
-      const data={question:fields.question.value,expected_answer:fields.expected_answer.value,expected_sources:JSON.parse(fields.expected_sources.value||'[]')};
+      const data={expected_unanswerable:fields.expected_unanswerable.checked,question:fields.question.value,expected_answer:fields.expected_answer.value,expected_sources:JSON.parse(fields.expected_sources.value||'[]')};
       await api('/api/rag/questions'+(id?'/'+id:''),{...ragJSON(data),method:id?'PUT':'POST'});
       $('rag-question-editor').close();await ragFragment('/ui/rag/questions','rag-question-list');
     }
