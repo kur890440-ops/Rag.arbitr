@@ -1,4 +1,5 @@
 import time
+import logging
 
 
 FAIR_FIELDS = ("corpus_id", "corpus_hash", "normalized_hash", "embedding", "dimension", "similarity", "document_ids")
@@ -18,7 +19,7 @@ class SemanticRetriever:
     def __init__(self, provider, vectors, store):
         self.provider, self.vectors, self.store = provider, vectors, store
 
-    def retrieve_vector(self, vector, index, top_k, document_id=None):
+    def retrieve_vector(self, vector, index, top_k, document_id=None, policy=None):
         if index["embedding"] != self.provider.identity:
             raise ValueError("Query model/settings differ from indexed model")
         results = []
@@ -30,7 +31,8 @@ class SemanticRetriever:
             active = part.get('chunk_ids', [])
             if active:
                 found=self.vectors.search(part['collection'], vector, top_k,
-                    [document_id] if document_id else None, chunk_ids=active)
+                    [document_id] if document_id else (part['document_ids'] if policy is not None else None), chunk_ids=active,
+                    **({'policy':policy} if policy is not None else {}))
                 points.extend(found)
                 versions.update({p.payload['chunk_id']:part['run_id'] for p in found})
         points = sorted(points, key=lambda p: (-p.score, p.payload['chunk_id']))[:top_k]
@@ -38,12 +40,16 @@ class SemanticRetriever:
             chunk = self.store.get("chunks", point.payload["chunk_id"])
             if not chunk:
                 raise ValueError("Missing canonical chunk in SQLite")
+            if policy is not None and (chunk['document_id']!=point.payload['document_id'] or
+                    chunk['chunk_id'] not in index.get('chunk_ids',[])):
+                logging.getLogger(__name__).error('RETRIEVAL_POLICY_VIOLATION stage=canonical_candidate chunk_id=%s',chunk['chunk_id'])
+                continue
             results.append({**point.payload, "rank": rank, "score": point.score, "text": chunk["text"]})
             results[-1].update({k:chunk.get(k, '') for k in ('source','title')})
             results[-1].update(corpus_id=index.get('corpus_id'),chunking_run_id=versions[chunk['chunk_id']])
             if chunk.get("recognition_ids"):
                 results[-1]["provenance"] = self.store.trace_chunk(chunk["chunk_id"])
-        return results
+        return policy.guard(results,'candidate') if policy is not None else results
 
     def compare(self, query, indexes, top_k, document_id=None):
         validate_comparison(indexes["fixed"], indexes["structure"])

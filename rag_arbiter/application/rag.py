@@ -10,6 +10,8 @@ from ..config import Config
 from ..documents import digest, now
 from ..llm import LLMConfig, LLMRequest, LLMResult, MiniMaxLLMProvider, BASE_SYSTEM
 from ..retrieval import SemanticRetriever
+from .retrieval_policy import RetrievalPolicy
+from .document_metadata import sync_payload
 from .views import ResultsService
 from .full_document import FullDocumentContextBuilder, full_document_defaults
 from .exhaustive import ExhaustiveNoRAG
@@ -224,9 +226,9 @@ class RAGComparisonService:
         else:self.execute(key)
         return key
 
-    def execute(self,key):
+    def execute(self,key,progress=None):
         try:
-            return self._execute(key)
+            return self._execute(key,progress)
         except Exception:
             r=self.get(key,public=False)
             r['rag_result']=LLMResult(model=r['llm_model'],error={'code':'COMPARISON_ERROR'}).model_dump()
@@ -236,15 +238,30 @@ class RAGComparisonService:
             self.put(r)
             return self.get(key)
 
-    def _execute(self,key):
+    def _execute(self,key,progress=None):
+        progress=progress or (lambda stage: None)
         r=self.get(key,public=False);r.update(status='RUNNING',started_at=now());self.put(r)
         cfg=Config(**r['config_snapshot'])
         cfg.llm.api_key=self.runs.config.llm.api_key
+        if r.get('reference_prior_claims'):
+            from .policy_predicate import execute_reference
+            return execute_reference(self,r,cfg,progress)
         provider=self.llm_factory(cfg.llm)
         def generate(context,context_type='rag'):
+            progress('generating')
             r['generation_call_count']+=1
             try:
-                result=provider.generate(LLMRequest(question=r['question_text'],context=context,context_type=context_type)).model_dump()
+                request=LLMRequest(question=r.get('chat_generation_question',r['question_text']),context=context,context_type=context_type)
+                if r.get('chat_input_budget'):
+                    def fits():return len((BASE_SYSTEM+request.user_content()).encode('utf-8'))+512<=r['chat_input_budget']
+                    if not fits():
+                        request.question=r['chat_generation_base'];r['chat_history_dropped']=True
+                    if not fits():return LLMResult(model=cfg.llm.model,error={'code':'CHAT_CONTEXT_BUDGET_EXCEEDED'}).model_dump()
+                from .diagnostic_trace import record
+                record('generation_request', system=BASE_SYSTEM, user=request.user_content(),
+                       question=request.question, context_type=request.context_type)
+                result=provider.generate(request).model_dump()
+                record('generation_result', result=result)
                 r['minimax_requests_count']+=result.get('request_count',0)
                 return result
             except Exception:return LLMResult(model=cfg.llm.model,error={'code':'GENERATION_ERROR'}).model_dump()
@@ -276,12 +293,19 @@ class RAGComparisonService:
                 r.update(full_document_status='BUILD_ERROR',full_document_error_json={'code':'FULL_DOCUMENT_BUILD_ERROR'})
             self.put(r)
         if r['rag_pipeline_mode']=='REWRITE_RERANK':
-            rewrite=QueryRewriteService(self.runs,cfg.llm,self.llm_factory).rewrite(r['question_text'])
+            progress('rewriting')
+            rewrite=QueryRewriteService(self.runs,cfg.llm,self.llm_factory).rewrite(r.get('chat_search_question') or r['question_text'])
             r.update(retrieval_query=rewrite.retrieval_query,rewrite_status=rewrite.status,rewrite_used=rewrite.status=='SUCCESS',
                 rewrite_duration_ms=rewrite.duration_ms,rewrite_fallback=rewrite.fallback,rewrite_result=rewrite.model_dump())
             r['minimax_requests_count']+=rewrite.request_count
             r['generation_call_count']+=int(rewrite.request_count>0)
+            if r.get('chat_require_rewrite') and rewrite.status not in ('SUCCESS','GUARDED_FALLBACK'):
+                r['rag_result']=LLMResult(model=cfg.llm.model,error={'code':'QUERY_REWRITE_UNAVAILABLE'}).model_dump()
+                r.update(status='FAILED',finished_at=now(),error_json=[r['rag_result']['error']])
+                self.put(r)
+                return self.get(key)
         started=time.perf_counter();pipeline=None;hits=[];error=None;candidates=[];ranked_hits=[]
+        progress('retrieving')
         try:
             index=r['index_snapshot']
             if r['rag_scope']=='SELECTED_DOCUMENT' and not r['selected_document_id']:
@@ -294,9 +318,11 @@ class RAGComparisonService:
                         pipeline=self.runs.pipeline_factory(cfg)
                         pipeline.validate_current_corpus(ResultsService(self.runs).snapshot(r['processing_run_id']))
                         pipeline.resources()
+                        policy=RetrievalPolicy.model_validate(r['retrieval_policy_json']) if r.get('retrieval_policy_json') else None
+                        if policy:sync_payload(pipeline.vectors,index,policy.document_metadata)
                         vector_started=time.perf_counter()
                         vector=pipeline.provider.encode([r['retrieval_query']])[0]
-                        hits=SemanticRetriever(pipeline.provider,pipeline.vectors,pipeline.store).retrieve_vector(vector,index,r.get('candidate_top_n',r['top_k']),retrieval_document(r['rag_scope'],r['selected_document_id']))
+                        hits=SemanticRetriever(pipeline.provider,pipeline.vectors,pipeline.store).retrieve_vector(vector,index,r.get('candidate_top_n',r['top_k']),retrieval_document(r['rag_scope'],r['selected_document_id']),policy=policy)
                         r['vector_retrieval_duration_ms']=(time.perf_counter()-vector_started)*1000
                         for hit in hits:
                             hit['source_pages']=[{'recognition_id':s['page']['recognition_id'],'page_number':s['page']['page_number']} for s in hit.get('provenance',{}).get('sources',[])]
@@ -310,13 +336,14 @@ class RAGComparisonService:
                             file_title=raw_by_id[d['chunk_id']].get('file_name',''),section=raw_by_id[d['chunk_id']].get('section',''),
                             page_start=raw_by_id[d['chunk_id']]['page_start'],accepted=False,filter_reason=d['reason']) for d in diagnostics]
                         if r['rag_pipeline_mode']!='BASELINE':
+                            progress('reranking')
                             provider_key=json.dumps(cfg.reranker.model_dump(),sort_keys=True)
                             reranker=self.rerankers.setdefault(provider_key,self.reranker_factory(cfg.reranker)) if provider_key not in self.rerankers else self.rerankers[provider_key]
                             inputs=[RerankCandidate(chunk_id=h['chunk_id'],document_id=h['document_id'],text=h['text'],
                                 file_title=h.get('file_name',''),section=h.get('section',''),page_start=h['page_start'],page_end=h['page_end'],
                                 retrieval_rank=h['rank'],retrieval_score=h['score']) for h in cleaned]
                             tick=time.perf_counter()
-                            try:reranked=reranker.rerank(r['question_text'],inputs)
+                            try:reranked=reranker.rerank(r.get('chat_search_question') or r['question_text'],inputs)
                             finally:r['rerank_duration_ms']=(time.perf_counter()-tick)*1000
                             originals={h['chunk_id']:h for h in cleaned};ranked_hits=[]
                             if len(reranked)!=len(cleaned) or {c.chunk_id for c in reranked}!=set(originals):raise RerankerUnavailable('INVALID_RERANK_OUTPUT')
@@ -333,6 +360,7 @@ class RAGComparisonService:
                                 rerank_rank=None,rerank_score=None,accepted=True,filter_reason=None) for h in cleaned)
                         r.update(candidate_trace=trace,candidates_after_rerank=len(ranked_hits))
                         candidates,processing=processor.build(ranked_hits,precleaned=True)
+                        if policy:candidates=policy.guard(candidates,'final_context')
                         r.update({k:v for k,v in processing.items() if k not in ('candidates_after_dedup','dedup_diagnostics')})
                     finally:
                         if pipeline:pipeline.close()
@@ -354,6 +382,22 @@ class RAGComparisonService:
             final_source_ids=[s['source_id'] for s in context['sources']],
             context_candidate_metadata_json=[c.model_dump(exclude={'anchor','context_text'}) for c in candidates])
         r.update(context_text=context['text'],context_tokens=context['token_count'],used_count=context['used_count'],sources=context['sources'],used_chunk_ids_json=context['used_chunk_ids'])
+        if r.get('revalidation_claim') and not error:
+            from .grounding import GroundingValidator, GroundedClaim, AnswerContract
+            claim=GroundedClaim(claim_id='C1',text=r['revalidation_claim'],
+                supporting_source_ids=[s['reference'] for s in context['sources']])
+            provider_key=json.dumps(cfg.reranker.model_dump(),sort_keys=True)
+            if provider_key not in self.rerankers:self.rerankers[provider_key]=self.reranker_factory(cfg.reranker)
+            with self.runs.db() as store:
+                ground,citations=GroundingValidator(CitationBuilder(store),self.rerankers[provider_key],cfg.llm.claim_support_threshold).validate(
+                    AnswerContract(answer=claim.text,claims=[claim]),context['sources'])
+            r.update(claims_json=[claim.model_dump()],citations_json=[c.model_dump() for c in citations] if ground.grounded else [],
+                grounding_status='GROUNDED' if ground.grounded else 'INSUFFICIENT_CONTEXT',grounding_result=ground.model_dump(),
+                refusal_reason=None if ground.grounded else 'CLAIM_NOT_RECONFIRMED',status='COMPLETED',finished_at=now(),
+                rag_answer=claim.text if ground.grounded else '',
+                rag_result=LLMResult(model=cfg.llm.model,status='SUCCESS' if ground.grounded else 'INSUFFICIENT_CONTEXT',
+                    text=claim.text if ground.grounded else '').model_dump())
+            self.put(r);return self.get(key)
         self.put(r)
         if error in (None,'NO_RELEVANT_CONTEXT') and not context['sources']:
             ground=GroundingResult(refusal_reason=error or 'ZERO_CONTEXTS')
@@ -369,8 +413,9 @@ class RAGComparisonService:
             if provider_key not in self.rerankers:self.rerankers[provider_key]=self.reranker_factory(cfg.reranker)
             try:
                 with self.runs.db() as store:
-                    r['rag_result']=grounded_generation(r,context['text'],generate,CitationBuilder(store),
-                        self.rerankers[provider_key],cfg.llm.claim_support_threshold)
+                    final_generate=generate
+                    r['rag_result']=grounded_generation(r,context['text'],final_generate,CitationBuilder(store),
+                        self.rerankers[provider_key],cfg.llm.claim_support_threshold,progress=progress)
             except RerankerUnavailable:
                 r.update(grounding_status='ERROR',claims_json=[],citations_json=[])
                 r['rag_result']=LLMResult(model=cfg.llm.model,status='RERANKER_UNAVAILABLE',error={'code':'RERANKER_UNAVAILABLE'}).model_dump()

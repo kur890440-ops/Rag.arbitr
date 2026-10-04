@@ -60,6 +60,7 @@ class Block(BaseModel):
 
 
 class Document(BaseModel):
+    retrieval_metadata: dict = Field(default_factory=dict)
     document_id: str
     source_path: str
     file_name: str

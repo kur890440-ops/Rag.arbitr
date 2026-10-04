@@ -9,13 +9,14 @@ class MetadataStore:
               "evaluation_runs", "retrieval_results", "recognition_metadata", "processing_runs",
               "processing_run_errors", "uploads", "recognition_cache", "chunk_settings", "normalized_documents",
               "rag_evaluation_questions", "rag_comparison_runs", "rag_batches",
-              "exhaustive_batch_results", "exhaustive_map_cache", "query_rewrite_cache")
+              "exhaustive_batch_results", "exhaustive_map_cache", "query_rewrite_cache",
+              "chat_sessions", "chat_messages", "chat_turns", "task_states", "dialogue_working_contexts")
 
     def __init__(self, path):
         self.db = sqlite3.connect(path, timeout=30)
         self.db.execute("PRAGMA journal_mode=WAL")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 8:
+        if version > 10:
             raise ValueError("Unsupported database schema")
         for table in self.TABLES:
             self.db.execute(f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)))")
@@ -43,7 +44,9 @@ class MetadataStore:
                 r.setdefault('selected_document_id',r.get('document_id'))
                 r.setdefault('corpus_id',(r.get('index_snapshot') or {}).get('corpus_id'))
                 self.db.execute('UPDATE rag_comparison_runs SET data=? WHERE id=?',(json.dumps(r,ensure_ascii=False),key))
-        self.db.execute("PRAGMA user_version=8")
+        self.db.execute("CREATE INDEX IF NOT EXISTS chat_messages_session ON chat_messages(json_extract(data,'$.session_id'),json_extract(data,'$.sequence'))")
+        self.db.execute("CREATE INDEX IF NOT EXISTS chat_turns_session ON chat_turns(json_extract(data,'$.session_id'))")
+        self.db.execute("PRAGMA user_version=10")
         self.db.commit()
 
     def put(self, table, key, data):

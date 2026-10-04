@@ -51,6 +51,7 @@ from .reranking import RerankerConfig
 
 
 class Config(BaseModel):
+    max_reference_claims: int = Field(default=10,ge=1,le=10)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     recognition: RecognitionConfig = Field(default_factory=RecognitionConfig)

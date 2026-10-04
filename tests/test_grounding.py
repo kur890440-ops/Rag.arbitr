@@ -86,10 +86,28 @@ def test_one_repair_revalidated_no_unsupported_display(setup,repair):
     assert len(calls)==2 and result['request_count']==2
     assert 'S1' in calls[1][0] or repair=='malformed'
     assert r['repair_used']
-    if repair=='good':assert r['grounding_status']=='GROUNDED' and r['citations_json']
+    if repair in ('good','hidden_fact'):
+        assert r['grounding_status']=='GROUNDED' and r['citations_json']
+        assert result['text']=='Payment is 100 rubles. [S1]'
+        assert 'Invented' not in result['text']
+        if repair=='hidden_fact':assert r['answer_rendering']=='VALIDATED_CLAIMS_ONLY'
     else:
         assert result['status']=='INSUFFICIENT_CONTEXT' and not r['citations_json']
         assert '999' not in result['text'] and 'S9' not in result['text']
+
+
+@pytest.mark.parametrize('fault',['none','unsupported','duplicate','unknown_reference'])
+def test_projection_only_of_complete_validated_claim_set(setup,fault):
+    _,builder,s=setup;record={'sources':[s]};a=contract()
+    a.answer='Different prose must never be displayed.'
+    if fault=='unsupported':a.claims.append(GroundedClaim(claim_id='C2',text='Payment is 999 rubles.',supporting_source_ids=['S1']))
+    if fault=='duplicate':a.claims.append(a.claims[0])
+    if fault=='unknown_reference':a.answer+=' [S999]'
+    def generate(*args):return LLMResult(model='test',status='SUCCESS',text=a.model_dump_json()).model_dump()
+    result=grounded_generation(record,'SOURCE',generate,builder,Reranker(),.5)
+    assert 'Different prose' not in result['text'] and '999' not in result['text']
+    assert record['grounding_status']==('GROUNDED' if fault=='none' else 'INSUFFICIENT_CONTEXT')
+    if fault=='none':assert record['grounding_diagnostics'][0]['answer_projected_from_validated_claims']
 
 
 def test_model_refusal_no_repair(setup):
@@ -160,3 +178,54 @@ def test_gate_no_factual_generation(ragweb):
 
 
 from test_rag import ragweb
+
+
+def test_repair_feedback_is_bounded_without_mutating_local_diagnostics():
+    from rag_arbiter.application.grounding import compact_repair, GroundingResult
+    answer=contract()
+    for i in range(12):
+        c=GroundedClaim(claim_id=f'C{i+1}',text='Факт '*200,supporting_source_ids=['S1'],support_status='UNSUPPORTED')
+        c.support_scores={'S1':dict(reason='LOW_FACT_COVERAGE',quote_checks=[dict(score=.99,
+            quote='Цитата '*200,reason='LOW_FACT_COVERAGE',missing_terms=['слово']*30) for _ in range(6)])}
+        if i==0:answer.claims=[]
+        answer.claims.append(c)
+    original=answer.model_dump_json()
+    feedback=compact_repair(answer,GroundingResult(claims_total=12))
+    assert len(json.dumps(feedback,ensure_ascii=False).encode())<=8000
+    assert answer.model_dump_json()==original
+    assert len(feedback['claims'])==12
+
+
+def test_repair_prefers_complete_evidence_over_higher_relevance_fragment():
+    from rag_arbiter.application.grounding import compact_repair, GroundingResult
+    a=contract('Конкурсный управляющий обязан действовать добросовестно.')
+    a.claims[0].support_status='UNSUPPORTED'
+    a.claims[0].support_scores={'S1':dict(reason='LOW_FACT_COVERAGE',quote_checks=[
+        dict(score=.99999,quote='обязан действовать добросовестно.',reason='LOW_FACT_COVERAGE',missing_terms=['конкурсный','управляющий']),
+        dict(score=.999,quote='Арбитражный управляющий\nобязан действовать добросовестно.',reason='LOW_FACT_COVERAGE',missing_terms=['конкурсный'])])}
+    result=compact_repair(a,GroundingResult(claims_total=1))
+    check=result['claims'][0]['support_scores']['S1']['quote_checks'][0]
+    assert check['quote'].startswith('Арбитражный управляющий')
+    assert check['missing_terms']==['конкурсный']
+
+
+@pytest.mark.parametrize('fault',[None,'foreign_document','missing_context','missing_chunk','page_gap','complete_sentence'])
+def test_sentence_crossing_pages_has_two_exact_canonical_locators(setup,fault):
+    store,builder,s=setup
+    left='Арбитражный управляющий';right='обязан действовать добросовестно и разумно.'
+    store.rows['document_blocks']['b'].update(text=left,page_number=3,recognition_id='p3')
+    store.rows['document_blocks']['b2']=dict(document_id='d',text=right,page_number=4,recognition_id='p4')
+    store.rows['chunks']['c']['source_block_ids']=['b','b2']
+    s.update(text=left+'\n'+right,source_block_ids=['b','b2'])
+    if fault=='foreign_document':store.rows['document_blocks']['b2']['document_id']='other'
+    if fault=='missing_context':s['text']=right
+    if fault=='missing_chunk':store.rows['chunks']['c']['source_block_ids']=['b']
+    if fault=='page_gap':store.rows['document_blocks']['b2']['page_number']=5
+    if fault=='complete_sentence':store.rows['document_blocks']['b']['text']=left+'.';s['text']=left+'.\n'+right
+    a=contract(left+' '+right);g,quotes=GroundingValidator(builder,Reranker(),.5).validate(a,[s])
+    if fault:assert not g.grounded
+    else:
+        assert g.grounded and quotes[0].page_start==3 and quotes[0].page_end==4
+        assert len(quotes[0].parts)==2 and builder.exact(quotes[0])
+        store.rows['document_blocks']['b2']['text']='Changed'
+        assert not builder.exact(quotes[0])

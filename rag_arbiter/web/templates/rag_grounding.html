@@ -9,6 +9,7 @@
 <p class="muted">стр. {{c.page_start}} · {{c.section}} · chunk {{c.chunk_id}}</p>
 <blockquote>{{c.quote}}</blockquote><small>Exact: {{c.exact_match}} · Claim support: {{'%.3f'|format(c.support_score)}}</small>
 {% if c.locator.recognition_id %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{c.locator.recognition_id}}">Показать страницу {{c.page_start}}</button>{% endif %}</div>
+{% for part in c.get('parts',[]) if part.page_number != c.page_start %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{part.recognition_id}}">Продолжение · стр. {{part.page_number}}</button>{% endfor %}
 {% endfor %}
 <details><summary>Grounding · диагностика</summary><p>Порог поддержки: {{result.get('claim_support_threshold')}} · Причина отказа: {{result.get('refusal_reason') or '—'}}</p>
 <p>Поддержка оценивается локальным reranker; это проверка смысловой близости, а не доказательство логического следования.</p>

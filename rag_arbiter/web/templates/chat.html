@@ -1,0 +1,14 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Чат · rag.арбитр</title><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/chat.css">
+<script src="/static/chat.js" defer></script></head><body>
+<header class="app-header"><a class="brand" href="/">rag.<b>арбитр</b></a><span>DAY 25 · ЧАТ</span><a href="/">Документы / Поиск / Evaluation</a></header>
+<main class="chat-shell"><nav class="chat-sessions panel" aria-label="Сессии">
+<h2>Чаты</h2><label for="chat-corpus">Корпус нового чата</label><select id="chat-corpus">{% for r in runs if r.status not in ['RUNNING','QUEUED'] and r.get('operation') != 'analysis_fixture' %}<option value="{{r.run_id}}">{{r.created_at[:19]}} · {{r.status}} · {{r.run_id[:8]}}</option>{% endfor %}</select>
+<button id="new-chat">Новый чат</button>
+{% for s in sessions %}<a class="chat-session" href="/chat?session_id={{s.session_id}}">{{s.title}}<small>{{s.updated_at[:19]}}</small></a>{% endfor %}</nav>
+<section class="chat-main"><div id="chat-error" role="alert" hidden></div>
+<div id="chat-content">{% if data %}{% include 'chat_thread.html' %}{% else %}<section class="panel"><h1>Чат по документам</h1><p>Выберите корпус и нажмите «Новый чат».</p><p>Поиск по всем документам · Structure Aware · Query Rewrite + Rerank.</p></section>{% endif %}</div>
+{% if data %}<form id="chat-send" class="panel"><label for="chat-input">Сообщение</label><textarea id="chat-input" maxlength="1500" required placeholder="Что нужно выяснить по документам?"></textarea><button id="chat-submit">Отправить</button><small>История сохраняется. Память задачи содержит только ваши явные условия.</small></form>{% endif %}
+{% if data %}<div class="chat-diagnostic-actions"><button type="button" class="secondary diagnostic-copy">Скопировать диагностику</button> <a href="/api/chat/sessions/{{data.session.session_id}}/diagnostic?download=true" download>Скачать .md</a><span id="diagnostic-status" role="status" aria-live="polite"></span><textarea id="diagnostic-manual" readonly hidden aria-label="Диагностика для ручного копирования"></textarea></div>{% endif %}
+<section id="chat-viewer" class="panel" hidden><button id="close-viewer" class="secondary">Закрыть страницу</button><div id="chat-viewer-content"></div></section>
+</section></main></body></html>

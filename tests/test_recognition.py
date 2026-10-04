@@ -186,7 +186,7 @@ def test_sqlite_v1_migrates_without_loss(config):
     db.close()
     store = MetadataStore(config.sqlite_path)
     assert store.get("documents", "legacy") == {}
-    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 8
+    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 10
     assert store.all("recognition_metadata") == []
     store.close()
 

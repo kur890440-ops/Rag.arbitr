@@ -86,10 +86,12 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
         app.state.views = ResultsService(app.state.runs)
         app.state.system = SystemStatusService(config)
         app.state.rag = RAGComparisonService(app.state.runs,llm_factory)
+        from ..application.chat import ChatSessionService
+        app.state.chat = ChatSessionService(app.state.runs,app.state.rag)
         yield
         await run_in_threadpool(app.state.runs.close)
 
-    app = FastAPI(title="rag.арбитр · Day 23", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(title="rag.арбитр · Day 25", lifespan=lifespan, docs_url=None, redoc_url=None)
     request_limit = config.max_upload_request_size
     if config.max_upload_size and config.max_upload_files:
         request_limit = min(request_limit, config.max_upload_size * config.max_upload_files + 1024 * 1024)
@@ -143,6 +145,9 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
 
     def render(request, name, **context):
         return templates.TemplateResponse(request=request, name=name, context={"config": config, **context})
+
+    from .chat import register_chat
+    register_chat(app,render)
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, run_id: str | None = None):

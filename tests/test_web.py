@@ -349,7 +349,7 @@ def test_system_status_actual_metadata(web):
     client, _, cfg = web
     with patch("rag_arbiter.application.status.OllamaRuntime.request", side_effect=ConnectionError):
         result = client.get("/api/system/status").json()
-    assert result["sqlite"]["schema_version"] == 8 and result["sqlite"]["status"] == "available"
+    assert result["sqlite"]["schema_version"] == 10 and result["sqlite"]["status"] == "available"
     assert result["qdrant"]["mode"] == "Local" and result["docling"]
     assert result["recognition_model"] == cfg.recognition.model
     assert result["runtime_status"]["status"] == "unavailable"

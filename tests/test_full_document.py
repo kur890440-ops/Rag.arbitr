@@ -120,7 +120,7 @@ def test_migration_preserves_old_answers(tmp_path):
         r=db.get('rag_comparison_runs','old')
         assert r['no_rag_answer']=='old answer' and r['status']=='COMPLETED'
         assert r['full_document_status']=='NOT_RUN'
-        assert db.db.execute('PRAGMA user_version').fetchone()[0]==8
+        assert db.db.execute('PRAGMA user_version').fetchone()[0]==10
     finally:db.close()
 
 

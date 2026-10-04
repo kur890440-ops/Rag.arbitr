@@ -27,13 +27,18 @@ class LocalVectorStore:
         if points:
             self.client.upsert(name, points=points, wait=True)
 
-    def search(self, name, vector, top_k, document_ids=None, chunk_ids=None):
+    def search(self, name, vector, top_k, document_ids=None, chunk_ids=None, policy=None):
         conditions = []
         if document_ids is not None:
             conditions.append(models.FieldCondition(key="document_id", match=models.MatchAny(any=document_ids)))
         if chunk_ids is not None:
             conditions.append(models.FieldCondition(key="chunk_id", match=models.MatchAny(any=chunk_ids)))
+        if policy is not None:
+            conditions.append(policy.qdrant_filter())
         query_filter = models.Filter(must=conditions) if conditions else None
+        from .application.diagnostic_trace import record
+        record('qdrant_search', collection=name, limit=top_k,
+               query_filter=query_filter.model_dump(mode='json',exclude_none=True) if query_filter else None)
         return self.client.query_points(name, query=vector.tolist(), limit=top_k, query_filter=query_filter).points
 
     def close(self):
