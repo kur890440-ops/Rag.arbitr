@@ -18,7 +18,28 @@ BASE_SYSTEM = ('Отвечай кратко, по существу и по-ру�
     'Не выдумывай источники. Без предоставленных источников не создавай ссылки [S…].')
 
 
+class LocalLLMConfig(BaseModel):
+    enabled: bool = False
+    base_url: str = 'http://127.0.0.1:11434'
+    model: str = 'qwen3:4b-q4_K_M'
+    timeout: float = Field(180, gt=0, le=600)
+    context_window: int = Field(16384, ge=4096, le=32768)
+    max_output_tokens: int = Field(2048, ge=128, le=8192)
+    repair_reserve: int = Field(4096, ge=2048, le=12000)
+
+    @model_validator(mode='after')
+    def validate_local(self):
+        u = urlparse(self.base_url)
+        if (u.scheme != 'http' or u.hostname not in ('127.0.0.1', 'localhost', '::1')
+                or u.username or u.password or u.path not in ('', '/') or u.query or u.fragment):
+            raise ValueError('Local generation requires an HTTP loopback endpoint')
+        if self.max_output_tokens + self.repair_reserve >= self.context_window:
+            raise ValueError('Local context must leave room for input')
+        return self
+
+
 class LLMConfig(BaseModel):
+    local: LocalLLMConfig = Field(default_factory=LocalLLMConfig)
     provider: Literal['minimax'] = 'minimax'
     api_base: str = 'https://api.minimax.io/v1'
     model: str = 'MiniMax-M2.7'
@@ -27,6 +48,8 @@ class LLMConfig(BaseModel):
     timeout: float = Field(120, gt=0, le=600)
     temperature: float = Field(1.0, ge=0, le=2)
     max_output_tokens: int = Field(8192, ge=1, le=32768)
+    compare_max_output_tokens: int | None = Field(None, ge=1, le=32768)
+    compare_timeout: float | None = Field(None, gt=0, le=600)
     context_budget: int = Field(12000, ge=256, le=64000)
     claim_support_threshold: float = Field(0.5, ge=0, le=1, allow_inf_nan=False)
     full_document_context_budget: int = Field(32768, ge=1024, le=1000000)
@@ -63,6 +86,17 @@ class LLMRequest(BaseModel):
     context: str | None = None
     context_type: Literal['rag','full_document','grounded_rag'] = 'rag'
 
+    def messages(self):
+        """Shared prompt construction; adapters only translate the transport."""
+        return [{'role': 'system', 'content': BASE_SYSTEM},
+                {'role': 'user', 'content': self.user_content()}]
+
+    def output_schema(self):
+        if self.context_type == 'grounded_rag':
+            from .application.grounding import AnswerContract
+            return AnswerContract.model_json_schema()
+        return None
+
     def user_content(self):
         if self.context is None:return self.question
         if self.context_type == 'grounded_rag':
@@ -85,6 +119,7 @@ class LLMResult(BaseModel):
     error: dict = Field(default_factory=dict)
     finish_reason: str | None = None
     request_count: int = 0
+    diagnostics: dict = Field(default_factory=dict)
 
 
 class LLMProvider(Protocol):
@@ -110,15 +145,14 @@ class MiniMaxLLMProvider:
     def generate(self, request):
         cfg = self.config
         started = time.perf_counter()
-        result = LLMResult(model=cfg.model)
+        result = LLMResult(model=cfg.model, diagnostics=dict(max_output_tokens=cfg.max_output_tokens, timeout=cfg.timeout))
         key = cfg.resolved_key()
         try:
             if not key:
                 result.status, result.error = 'NOT_CONFIGURED', {'code':'NOT_CONFIGURED'}
                 return result
-            content = request.user_content()
             payload = dict(model=cfg.model, temperature=cfg.temperature, max_completion_tokens=cfg.max_output_tokens,
-                stream=False, reasoning_split=True, messages=[{'role':'system','content':BASE_SYSTEM}, {'role':'user','content':content}])
+                stream=False, reasoning_split=True, messages=request.messages())
             result.request_count = 1
             data = self.transport(cfg.api_base.rstrip('/')+'/chat/completions',
                 {'Authorization':f'Bearer {key}', 'Content-Type':'application/json'}, payload, cfg.timeout)
@@ -141,6 +175,9 @@ class MiniMaxLLMProvider:
                 content = content.split('<think>',1)[0]
             result.text = content.strip().replace(key, '[REDACTED]')
             result.usage = {k:v for k,v in data.get('usage', {}).items() if k in ('prompt_tokens','completion_tokens','total_tokens') and type(v) is int}
+            reasoning_tokens = (data.get('usage', {}).get('completion_tokens_details') or {}).get('reasoning_tokens')
+            if type(reasoning_tokens) is int:
+                result.usage['reasoning_tokens'] = reasoning_tokens
             result.status = 'TRUNCATED' if result.finish_reason=='length' else 'SUCCESS' if result.text and result.finish_reason=='stop' else 'ERROR'
             if result.status != 'SUCCESS':
                 result.error = {'code':'OUTPUT_LIMIT' if result.status=='TRUNCATED' else 'INVALID_RESPONSE'}

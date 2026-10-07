@@ -1,0 +1,24 @@
+﻿<section class="generation-shared" data-shared-sources>
+<h3>Общий RAG-контекст</h3><p class="muted">Один retrieval и один контекст для Local и MiniMax. Различается только генерация.</p>
+<dl class="chunk-meta generation-shared-meta">
+<dt>Retrieval run</dt><dd>{{comparison.shared.retrieval_run_id}}</dd>
+<dt>Final contexts</dt><dd>{{comparison.shared.final_contexts}}</dd>
+<dt>Context size</dt><dd>{{comparison.shared.context_size}} bytes · UTF-8 оценка</dd>
+<dt>Chunks / sources</dt><dd>{{comparison.shared.context_ids|length}} / {{comparison.shared.sources|length}}</dd>
+</dl>
+{% if result.get('comparison_context_reduced') %}<p class="muted">Общий бюджет ограничен Local: {{result.requested_context_budget}} → {{result.context_token_budget}} bytes.</p>{% endif %}
+<details class="generation-source-list"><summary>Источники / цитаты</summary>
+{% for source in comparison.shared.sources %}<details class="rag-source" data-shared-source="{{source.reference}}"><summary>[{{source.reference}}] {{source.file_name}} · стр. {{source.page_start}}–{{source.page_end}}</summary>
+<p class="muted">{{source.section or 'Без раздела'}} · chunk {{source.chunk_id}}</p><pre>{{source.text}}</pre>
+{% for page in source.get('source_pages',[]) %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{page.recognition_id}}">Показать страницу {{page.page_number}}</button>{% endfor %}
+</details>{% else %}<p class="muted">{{'Контекст ещё не получен.' if comparison.status in ['QUEUED','RUNNING'] else 'Подходящие источники не найдены.'}}</p>{% endfor %}
+{% for key,label in [('local','Local'),('cloud','MiniMax')] %}{% set run=comparison[key] %}
+{% if run.citations %}<h4>Цитаты ответа {{label}}</h4>{% endif %}
+{% for citation in run.citations %}<details class="grounded-citation" id="generation-citation-{{comparison.comparison_run_id}}-{{run.provider}}-{{loop.index}}">
+<summary>{{citation.claim_id}} · [{{citation.source_id}}] {{citation.file_title}} · стр. {{citation.page_start}}–{{citation.page_end}}</summary>
+<blockquote>{{citation.quote}}</blockquote><p class="muted">{{'Точная цитата' if citation.exact_match else 'Проверка цитаты не пройдена'}} · Claim support: {{'%.3f'|format(citation.support_score)}}</p>
+{% if citation.locator.get('recognition_id') %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{citation.locator.recognition_id}}">Показать страницу {{citation.page_start}}</button>{% endif %}
+{% for part in citation.parts if part.page_number != citation.page_start %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{part.recognition_id}}">Продолжение · стр. {{part.page_number}}</button>{% endfor %}
+</details>{% endfor %}{% endfor %}
+</details>
+</section>

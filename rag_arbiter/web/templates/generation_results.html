@@ -1,0 +1,27 @@
+﻿{% set comparison=result.compare_result %}
+<section class="rag-comparison generation-comparison" data-comparison-id="{{comparison.comparison_run_id}}">
+<div class="section-head"><h3>{{result.question_text}}</h3><strong class="generation-status {{'partial' if comparison.status == 'PARTIAL' else 'fail' if comparison.status in ['FAILED','INTERRUPTED'] else 'pending'}}">{{comparison.status}}</strong></div>
+{% if comparison.status == 'PARTIAL' %}<p class="muted">Получена часть результатов. Ответ доступного провайдера сохранён.</p>{% endif %}
+{% if comparison.status in ['QUEUED','RUNNING'] %}
+<div class="generation-progress" role="status" aria-live="polite">
+<span class="generation-spinner" aria-hidden="true"></span>
+{% if comparison.stage == 'grounding' %}Grounding… · {{'Local' if comparison.active_provider == 'local' else 'MiniMax'}}
+{% elif comparison.stage == 'generating' %}{{'Local generation…' if comparison.active_provider == 'local' else 'MiniMax generation…'}}
+{% elif comparison.stage == 'queued' %}Ожидание запуска…
+{% else %}Retrieval…{% endif %}
+</div>{% endif %}
+<div class="generation-cards">
+{% for key,label in [('local','LOCAL / Qwen'),('cloud','CLOUD / MiniMax')] %}{% set run=comparison[key] %}
+<article class="generation-card" data-provider="{{run.provider}}" aria-busy="{{'true' if run.status == 'PENDING' else 'false'}}">
+<h3>{{label}}</h3><p class="muted generation-model">{{run.model or 'Модель ещё не определена'}}</p>
+{% if run.status == 'PENDING' %}<p class="muted generation-waiting">{% if comparison.stage in ['generating','grounding'] and comparison.active_provider == run.provider %}{{'Проверка утверждений…' if comparison.stage == 'grounding' else 'Генерация ответа…'}}{% else %}Ожидает общего контекста или очереди генерации…{% endif %}</p>
+{% else %}<div class="answer-text answer-markdown">{{(run.answer or 'Ответ не получен')|answer_markdown}}</div>{% endif %}
+{% include 'generation_metrics.html' %}
+{% if run.error %}<p class="rag-error" role="alert">{{run.error_message}} <small class="generation-error-code">{{run.error.get('code','ERROR')}}</small></p>{% endif %}
+{% if run.citations %}<nav class="generation-citation-links" aria-label="Цитаты {{label}}">Цитаты:
+{% for citation in run.citations %}<a href="#generation-citation-{{comparison.comparison_run_id}}-{{run.provider}}-{{loop.index}}" data-generation-citation>{{citation.claim_id}} [{{citation.source_id}}]</a>{% endfor %}</nav>{% endif %}
+</article>{% endfor %}
+</div>
+{% include 'generation_sources.html' %}
+<details><summary>Диагностика сравнения</summary><p>Context snapshot: {{comparison.shared.context_snapshot_id or 'ещё не создан'}}</p><pre>{{result.get('generation_runs',[])|tojson(indent=2)}}</pre>{% include 'rag_pipeline_details.html' %}</details>
+</section>

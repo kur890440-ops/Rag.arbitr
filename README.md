@@ -264,3 +264,44 @@ Day25 executable retrieval policy: see [DAY25_REPORT.md](DAY25_REPORT.md). Typed
 # Диагностика чата
 
 Внизу `/chat` доступна кнопка «Скопировать диагностику» и скачивание `.md`. Для одного ответа откройте «Диагностика ответа и памяти» и нажмите кнопку этого ответа. Экспорт содержит сохранённую историю, память, prior claims, запросы, фильтры, кандидатов, контексты и grounding; секреты маскируются. Отсутствующие исторические поля отмечены `NOT RECORDED`. Экспорт не запускает LLM и не меняет поиск. Подробности: [DAY25_DIAGNOSTIC_REPORT.md](DAY25_DIAGNOSTIC_REPORT.md).
+
+## Day 28 · Local LLM в экспериментальном Search
+
+В Search добавлен `Generation: MiniMax / Local / Compare`; по умолчанию сохранён MiniMax и прежнее сравнение NO CONTEXT / FULL DOCUMENT / RAG. Local и Compare выполняют только Point RAG. Chat и exhaustive не переключаются на Local.
+
+Local реализует существующий `LLMProvider` (`rag_arbiter/llm.py`), используется текстовая `qwen3:4b-q4_K_M` через существующий Ollama. Настройки в `config.toml`:
+
+```toml
+[llm.local]
+enabled = true
+base_url = "http://127.0.0.1:11434"
+model = "qwen3:4b-q4_K_M"
+timeout = 180
+context_window = 16384
+max_output_tokens = 2048
+repair_reserve = 4096
+```
+
+При отсутствии настройки `enabled=false`. Установленная модель проверяется через `/api/tags` и `/api/show`; vision/cloud-модели отвергаются. Установить отдельно: `.\.runtime\ollama\ollama.exe pull qwen3:4b-q4_K_M`. Приложение само не скачивает модель и не запускает daemon. При недоступности Local возвращает `LOCAL_GENERATION_UNAVAILABLE`, без подмены на MiniMax.
+
+Compare выполняет один retrieval и один общий выбор/сборку итогового контекста. Пробные сборки внутри прежнего ContextSelector сохранены. Обе ветви получают одинаковые system/user messages, источник/порядок, snapshot hash, prompt version, budget и правила цитирования. Ollama `format` применяет JSON schema существующего AnswerContract. Parser, CitationBuilder, GroundingValidator и максимум один repair общие. В Compare бюджет feedback repair также общий; обычный MiniMax сохраняет прежний бюджет.
+
+Локальный лимит учитывает UTF-8 размер вопроса/инструкций/контекста, резерв ответа, repair и 512 токенов служебного запаса. Это консервативная оценка, не tokenizer Ollama. Уменьшение общего бюджета видно в UI/diagnostics. Полное окно модели проверяется отдельно от заданного рабочего окна.
+
+Local использует существующий cross-process `RunService.operation_lock`, которым защищена обработка документов/OCR. Перед генерацией выгружается установленная OCR-модель, если она загружена; `keep_alive=0` освобождает Qwen после ответа. Portable startup уже задаёт одну загруженную модель и один параллельный запрос. OCR provider, кеши, checkpoint/resume не изменены.
+
+В существующем `rag_comparison_runs` добавлены `generation_runs`: provider/model, ответ, citations, grounding, structured validity, repair count, error, prompt/context bytes, ordered IDs, snapshot hash, generation/total/branch/shared timing. `total_ms` каждой ветви = общая подготовка + её генерация и grounding; ожидание другой ветви исключено. `total_duration_ms` — фактическое время всего Compare. Детали доступны в существующем JSON API и свёрнутой диагностике результата.
+
+Проверки: `python -m pytest -q`, `python -m scripts.check_day28_real --local-only`, `python -m scripts.check_day28_ui`. Последний читает сохранённый результат и перехватывает отправку формы, не вызывает модели. Реальный cloud benchmark: `python -m scripts.check_day28_real`; запускать только при разрешении передавать выбранные фрагменты корпуса в MiniMax. Отчёт: `DAY28_REPORT.md`, локальные артефакты: `data/day28/` (исключены из Git).
+
+### Day 28 · Compare UI
+
+В Search селектор «Генерация» отображается как MiniMax / Local / Compare. Compare показывает две адаптивные карточки и один общий RAG-контекст снизу; Local использует обычный RAG-результат, MiniMax сохраняет прежнюю тройку ветвей. Точные цитаты и переход к страницам доступны в общем блоке. Этапы выполнения видны через существующий polling; при отказе одного провайдера второй ответ остаётся видимым, статус — PARTIAL.
+
+API дополняет существующий record типизированным `compare_result` (`shared`, `local`, `cloud`), без новой БД или pipeline. Браузерная приёмка на синтетических данных: `python -m scripts.check_day28_compare_ui`. Подробности и скриншоты: [DAY28_COMPARE_UI.md](DAY28_COMPARE_UI.md).
+
+### Compare: увеличение облачного output budget
+
+Для облачной ветви Compare доступны опциональные `[llm]` настройки `compare_max_output_tokens` и `compare_timeout`. Если они не заданы, используются обычные `max_output_tokens`/`timeout`. В текущем локальном config после подтверждённого `finish_reason=length` на repair установлены 16384 и 240 секунд. MiniMax-only, Chat и exhaustive используют прежние лимиты; Local, общий context и one-repair max не изменены.
+
+Фактические лимиты записываются в `effective_cloud_generation_settings` и `LLMResult.diagnostics`. Числовой `reasoning_tokens` сохраняется из usage при наличии; текст reasoning не сохраняется этим изменением. Повышение лимита не гарантирует прохождение grounding.

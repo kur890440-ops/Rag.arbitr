@@ -1,0 +1,7 @@
+﻿<div class="generation-metrics">
+<span>Provider: <strong>{{'Local' if run.provider == 'local' else 'MiniMax'}}</strong></span>
+<span>Generation: <strong>{{'%.1f s'|format(run.generation_ms / 1000) if run.generation_ms is not none else '—'}}</strong></span>
+{% if run.total_ms is not none %}<span>Total: {{'%.1f s'|format(run.total_ms / 1000)}}</span>{% endif %}
+<span>Grounding: <strong class="generation-status {{(run.grounding_label or 'pending')|lower}}" title="{{run.grounding_status}}">{{run.grounding_label or '—'}}</strong></span>
+<span>Citations: <strong>{{run.citations_count}}</strong></span><span>Repair: <strong>{{run.repair_count}}</strong></span>
+</div>

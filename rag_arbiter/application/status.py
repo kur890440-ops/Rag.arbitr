@@ -30,6 +30,13 @@ class SystemStatusService:
         except Exception:
             result.update(runtime_status={"status": "unavailable"}, model_installed=None, placement={"effective_device": "unknown"})
         result['llm'] = llm_status(self.config.llm)
+        from ..local_llm import LocalLLMProvider
+        local = self.config.llm.local
+        result['local_generation'] = dict(enabled=local.enabled, base_url=local.base_url, model=local.model)
+        try:
+            result['local_generation'].update(LocalLLMProvider(local).inspect(), status='READY')
+        except Exception:
+            result['local_generation']['status'] = 'LOCAL_GENERATION_UNAVAILABLE'
         if result['llm']['status']=='READY':
             try:
                 with sqlite3.connect(f"file:{self.config.sqlite_path.resolve().as_posix()}?mode=ro",uri=True) as db:

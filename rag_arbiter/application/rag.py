@@ -157,12 +157,22 @@ class RAGComparisonService:
                 r.setdefault('max_context_sources',r.get('top_k',5))
                 r.setdefault('candidate_policy_version','legacy-raw-top-k')
                 r.setdefault('context_document_ids',sorted({s['document_id'] for s in r.get('sources',[])}))
+        if public and table == 'rag_comparison_runs':
+            from .generation_result import CompareResult, GenerationResult
+            if r.get('generation_mode') == 'compare':
+                r['compare_result'] = CompareResult.from_record(r).model_dump(mode='json')
+            else:
+                r['generation_result'] = GenerationResult.from_record(r, r.get('generation_mode', 'minimax')).model_dump(mode='json')
         return {k:v for k,v in r.items() if k not in ('index_snapshot','config_snapshot','owner_pid','owner_started')} if public else r
 
     def put(self,r,table='rag_comparison_runs'):
         with self.runs.db() as store:store.put(table,r['comparison_run_id'] if table=='rag_comparison_runs' else r['batch_id'],r)
 
-    def prepare(self,run_id,question='',question_id=None,document_id=None,strategy='structure',top_k=None,chunking_run_id=None,rag_scope=RAGScope.ALL_DOCUMENTS,selected_document_id=None,candidate_top_n=None,max_context_sources=None,context_token_budget=None,minimum_candidate_score=None,rag_pipeline_mode=RAGPipelineMode.BASELINE,rerank_threshold=None,point_only=False,claim_support_threshold=None):
+    def prepare(self,run_id,question='',question_id=None,document_id=None,strategy='structure',top_k=None,chunking_run_id=None,rag_scope=RAGScope.ALL_DOCUMENTS,selected_document_id=None,candidate_top_n=None,max_context_sources=None,context_token_budget=None,minimum_candidate_score=None,rag_pipeline_mode=RAGPipelineMode.BASELINE,rerank_threshold=None,point_only=False,claim_support_threshold=None,generation_mode="minimax"):
+        if generation_mode not in ('minimax', 'local', 'compare'):
+            raise ValueError('Invalid generation mode')
+        if generation_mode != 'minimax':
+            point_only = True
         rag_scope=RAGScope(rag_scope)
         rag_pipeline_mode=RAGPipelineMode(rag_pipeline_mode)
         rerank_threshold=self.runs.config.reranker.threshold if rerank_threshold is None else rerank_threshold
@@ -195,10 +205,21 @@ class RAGComparisonService:
             cfg.llm=LLMConfig.model_validate(cfg.llm.model_dump() | {"api_key":cfg.llm.api_key})
         cfg.context_expansion_budget=self.runs.config.context_expansion_budget
         cfg.context_diversity_penalty=self.runs.config.context_diversity_penalty
+        requested_context_budget = context_token_budget
+        if generation_mode != 'minimax':
+            local = cfg.llm.local
+            overhead = sum(len(m['content'].encode('utf-8')) for m in
+                LLMRequest(question=question, context='', context_type='grounded_rag').messages()) + 512
+            context_token_budget = min(context_token_budget,
+                local.context_window - local.max_output_tokens - local.repair_reserve - overhead)
+            if context_token_budget < 256:
+                raise ValueError('LOCAL_CONTEXT_LIMIT: question and instructions exceed local budget')
         full_defaults=full_document_defaults()
         full_defaults.update(full_document_id=document_id,full_document_status='NOT_RUN')
         from .rechunk import partitions
-        return dict(**full_defaults,rag_pipeline_mode=rag_pipeline_mode.value,rerank_threshold=rerank_threshold,
+        return dict(**full_defaults,generation_mode=generation_mode,generation_runs=[],
+            requested_context_budget=requested_context_budget,comparison_context_reduced=context_token_budget<requested_context_budget,
+            rag_pipeline_mode=rag_pipeline_mode.value,rerank_threshold=rerank_threshold,
             original_question=question,retrieval_query=question,reranker_model=cfg.reranker.model,rerank_duration_ms=0,vector_retrieval_duration_ms=0,reranker_settings=cfg.reranker.model_dump(),
             candidates_after_cleanup=0,candidates_after_rerank=0,candidate_trace=[],rewrite_used=False,rewrite_status='DISABLED',
             rewrite_duration_ms=0,rewrite_fallback=False,point_only=point_only,comparison_run_id=uuid4().hex,processing_run_id=run_id,question_id=question_id,question_text=question,
@@ -206,7 +227,7 @@ class RAGComparisonService:
             index_versions_used=[{'collection':p['collection'],'run_id':p['run_id'],'document_ids':p['document_ids'],'chunks':len(p['chunk_ids'])} for p in partitions(index) if rag_scope==RAGScope.ALL_DOCUMENTS or document_id in p['document_ids']] if index else [],
             corpus_chunks_eligible=len(index.get('chunk_ids',[])) if index else 0,documents_represented=[],
             scope_type='DOCUMENT' if rag_scope==RAGScope.SELECTED_DOCUMENT else 'CORPUS',scope_id=document_id if rag_scope==RAGScope.SELECTED_DOCUMENT else snapshot.get('corpus',{}).get('corpus_id'),document_id=document_id,
-            llm_provider=cfg.llm.provider,llm_model=cfg.llm.model,generation_settings_json=cfg.llm.model_dump(exclude={'api_key_env'}),
+            llm_provider='local' if generation_mode=='local' else cfg.llm.provider,llm_model=cfg.llm.local.model if generation_mode=='local' else cfg.llm.model,generation_settings_json=cfg.llm.model_dump(exclude={'api_key_env'}),
             prompt_version='day22-exhaustive-1',base_system=BASE_SYSTEM,retrieval_strategy=strategy,chunking_run_id=index.get('run_id') if index else None,
             top_k=max_context_sources,candidate_top_n=candidate_top_n,max_context_sources=max_context_sources,context_token_budget=context_token_budget,
             minimum_candidate_score=minimum_candidate_score,candidates_retrieved=0,candidates_after_dedup=0,candidate_document_ids=[],
@@ -239,14 +260,31 @@ class RAGComparisonService:
             return self.get(key)
 
     def _execute(self,key,progress=None):
-        progress=progress or (lambda stage: None)
+        on_progress=progress or (lambda stage: None)
         r=self.get(key,public=False);r.update(status='RUNNING',started_at=now());self.put(r)
+        def progress(stage):
+            r['generation_stage'] = stage
+            self.put(r)
+            on_progress(stage)
         cfg=Config(**r['config_snapshot'])
         cfg.llm.api_key=self.runs.config.llm.api_key
         if r.get('reference_prior_claims'):
             from .policy_predicate import execute_reference
             return execute_reference(self,r,cfg,progress)
-        provider=self.llm_factory(cfg.llm)
+        execution_started = time.perf_counter()
+        from ..local_llm import LocalLLMProvider
+        local_provider = LocalLLMProvider(cfg.llm.local, operation_lock=self.runs.operation_lock,
+                                          ocr_model=cfg.recognition.model)
+        mode = r.get('generation_mode', 'minimax')
+        cloud_config = cfg.llm
+        if mode == 'compare':
+            cloud_config = cfg.llm.model_copy(update={
+                'max_output_tokens': cfg.llm.compare_max_output_tokens or cfg.llm.max_output_tokens,
+                'timeout': cfg.llm.compare_timeout or cfg.llm.timeout})
+            r['effective_cloud_generation_settings'] = dict(
+                max_output_tokens=cloud_config.max_output_tokens, timeout=cloud_config.timeout)
+        provider = local_provider if mode == 'local' else self.llm_factory(cloud_config)
+        r['active_generation_provider'] = 'local' if mode == 'local' else 'minimax'
         def generate(context,context_type='rag'):
             progress('generating')
             r['generation_call_count']+=1
@@ -262,7 +300,8 @@ class RAGComparisonService:
                        question=request.question, context_type=request.context_type)
                 result=provider.generate(request).model_dump()
                 record('generation_result', result=result)
-                r['minimax_requests_count']+=result.get('request_count',0)
+                if result.get('provider') == 'minimax':
+                    r['minimax_requests_count']+=result.get('request_count',0)
                 return result
             except Exception:return LLMResult(model=cfg.llm.model,error={'code':'GENERATION_ERROR'}).model_dump()
         if not r.get('point_only'):
@@ -413,15 +452,54 @@ class RAGComparisonService:
             if provider_key not in self.rerankers:self.rerankers[provider_key]=self.reranker_factory(cfg.reranker)
             try:
                 with self.runs.db() as store:
-                    final_generate=generate
-                    r['rag_result']=grounded_generation(r,context['text'],final_generate,CitationBuilder(store),
-                        self.rerankers[provider_key],cfg.llm.claim_support_threshold,progress=progress)
+                    # Serialize once: immutable source/order snapshot, isolated mutable validation state.
+                    snapshot = json.dumps(context, ensure_ascii=False, sort_keys=True)
+                    snapshot_id = digest(snapshot)
+                    r['context_snapshot_id'] = snapshot_id
+                    shared_ms = (time.perf_counter() - execution_started) * 1000
+                    providers = [('local', local_provider), ('minimax', provider)] if mode == 'compare' else [(mode, provider)]
+                    for name, selected_provider in providers:
+                        provider = selected_provider
+                        r['active_generation_provider'] = name
+                        branch = {'sources': json.loads(snapshot)['sources']}
+                        tick = time.perf_counter()
+                        result = grounded_generation(branch,context['text'],generate,CitationBuilder(store),
+                            self.rerankers[provider_key],cfg.llm.claim_support_threshold,progress=progress,
+                            repair_context_limit=len(context['text'].encode('utf-8'))+cfg.llm.local.repair_reserve if mode!='minimax' else None)
+                        branch_ms = (time.perf_counter() - tick) * 1000
+                        fields = ('grounding_status','grounding_result','grounding_diagnostics','claims_json',
+                                  'citations_json','repair_used','refusal_reason','claim_support_threshold',
+                                  'grounding_version','answer_rendering','claims_total','claims_supported','claims_unsupported','structured_output_valid')
+                        details = {k: branch[k] for k in fields if k in branch}
+                        r.setdefault('generation_runs', []).append(dict(
+                            provider=name,model=result['model'],result=result,answer=result['text'],
+                            generation_ms=result['duration_ms'],total_ms=shared_ms+branch_ms,
+                            shared_pipeline_ms=shared_ms,branch_ms=branch_ms,
+                            context_snapshot_id=snapshot_id,context_ids=list(context['used_chunk_ids']),
+                            source_ids=[s['reference'] for s in context['sources']],
+                            context_size=context['token_count'],context_budget=budget,
+                            prompt_size=sum(len(m['content'].encode('utf-8')) for m in LLMRequest(
+                                question=r.get('chat_generation_question',r['question_text']),context=context['text'],context_type='grounded_rag').messages()),
+                            prompt_version=r['prompt_version'],claims_count=len(branch.get('claims_json', [])),
+                            citations_count=len(branch.get('citations_json', [])),
+                            repair_count=int(branch.get('repair_used',False)),error=result['error'],**details))
+                        # The historical fields stay compatible with existing readers.
+                        for field in fields:
+                            r.pop(field, None)
+                        r.update(details)
+                        r['rag_result'] = result
+                        self.put(r)
             except RerankerUnavailable:
                 r.update(grounding_status='ERROR',claims_json=[],citations_json=[])
                 r['rag_result']=LLMResult(model=cfg.llm.model,status='RERANKER_UNAVAILABLE',error={'code':'RERANKER_UNAVAILABLE'}).model_dump()
         r['rag_answer']=r['rag_result']['text'];r['rag_duration_ms']=r['rag_result']['duration_ms']
         if r.get('point_only'):
             r.update(status='COMPLETED' if r['rag_result']['status'] in ('SUCCESS','INSUFFICIENT_CONTEXT') else 'FAILED',finished_at=now(),error_json=[r['rag_result']['error']] if r['rag_result']['error'] else [])
+            if mode == 'compare' and r.get('generation_runs'):
+                successes = sum(g['result']['status'] in ('SUCCESS','INSUFFICIENT_CONTEXT') for g in r['generation_runs'])
+                r['status'] = 'COMPLETED' if successes == 2 else 'PARTIAL' if successes else 'FAILED'
+                r['error_json'] = [dict(provider=g['provider'], **g['error']) for g in r['generation_runs'] if g['error']]
+            r['total_duration_ms'] = (time.perf_counter() - execution_started) * 1000
             self.put(r);return self.get(key)
         branches=[r['no_rag_result'],r['rag_result']]
         r['error_json']=[dict(branch=name,**result['error']) for name,result in zip(('NO_RAG','RAG'),branches) if result['error']]

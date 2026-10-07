@@ -2,7 +2,7 @@
 let ragView = 0, ragBatchView = 0;
 let ragScope='ALL_DOCUMENTS';
 const ragJSON = data => ({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-function ragSettings(){return {claim_support_threshold:Number($('rag-support-threshold').value),rag_pipeline_mode:$('rag-mode').value,rerank_threshold:Number($('rag-threshold').value),selected_document_id:selectedDocument||null,rag_scope:ragScope,strategy:$('rag-strategy').value,candidate_top_n:Number($('rag-candidates').value),max_context_sources:Number($('rag-top-k').value),context_token_budget:Number($('rag-context-budget').value),chunking_run_id:$('rag-strategy').selectedOptions[0].dataset.indexId||null};}
+function ragSettings(){return {generation_mode:document.querySelector('#rag-generation input:checked').value,claim_support_threshold:Number($('rag-support-threshold').value),rag_pipeline_mode:$('rag-mode').value,rerank_threshold:Number($('rag-threshold').value),selected_document_id:selectedDocument||null,rag_scope:ragScope,strategy:$('rag-strategy').value,candidate_top_n:Number($('rag-candidates').value),max_context_sources:Number($('rag-top-k').value),context_token_budget:Number($('rag-context-budget').value),chunking_run_id:$('rag-strategy').selectedOptions[0].dataset.indexId||null};}
 function ragIndexLabel(){if($('rag-active-index')){$('rag-scope').value=ragScope;$('rag-active-index').textContent=`RAG: ${ragScope==='ALL_DOCUMENTS'?'Все документы':'Выбранный файл'} · ${$('rag-strategy').selectedOptions[0].textContent} · Candidates ${$('rag-candidates').value} / Contexts ${$('rag-top-k').value} · ChunkingRun: ${$('rag-strategy').selectedOptions[0].dataset.indexId||'Индекс не построен'}`;}}
 async function ragFragment(url,target){if($(target))await htmx.ajax('GET',url,{target:'#'+target,swap:'innerHTML'});}
 async function ragPoll(id,batch=false){
@@ -58,4 +58,14 @@ document.addEventListener('click',async event=>{
     else if(b.id==='rag-evaluate-modes'){b.disabled=true;try{await api(`/api/runs/${currentRun}/rag/evaluate`,ragJSON(ragSettings()));await ragFragment(`/ui/runs/${currentRun}/rag/evaluation`,'rag-evaluation-table');}finally{b.disabled=false;}}
     else if(b.id==='rag-run-all'){b.disabled=true;try{const r=await api(`/api/runs/${currentRun}/rag/batch`,ragJSON(ragSettings()));ragPoll(r.batch_id,true);}finally{b.disabled=false;}}
   }catch(error){notice(error.message);}
+});
+
+document.addEventListener('click',event=>{
+  const link=event.target.closest('[data-generation-citation]');
+  if(!link)return;
+  const target=document.getElementById(link.hash.slice(1));
+  if(!target)return;
+  event.preventDefault();
+  for(let detail=target.closest('details');detail;detail=detail.parentElement.closest('details'))detail.open=true;
+  target.scrollIntoView({block:'center',behavior:'smooth'});
 });

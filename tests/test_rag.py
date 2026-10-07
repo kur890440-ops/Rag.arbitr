@@ -220,3 +220,16 @@ def test_missing_index_empty_retrieval_and_search_failure(ragweb):
     with patch('rag_arbiter.application.rag.SemanticRetriever.retrieve_vector',side_effect=RuntimeError('private')):
         r=compare(c,rid);assert r['status']=='PARTIAL' and r['rag_result']['status']=='RETRIEVAL_ERROR'
         assert 'private' not in json.dumps(r)
+
+
+def test_cloud_request_diagnostics_preserve_numeric_reasoning_usage():
+    captured=[]
+    def send(url,headers,payload,timeout):
+        captured.append((payload,timeout))
+        return {'choices':[{'message':{'content':'partial'},'finish_reason':'length'}],
+                'usage':{'completion_tokens':16384,'completion_tokens_details':{'reasoning_tokens':12000}}}
+    result=MiniMaxLLMProvider(LLMConfig(api_key='synthetic',max_output_tokens=16384,timeout=240),send).generate(LLMRequest(question='q'))
+    assert captured[0][0]['max_completion_tokens']==16384 and captured[0][1]==240
+    assert result.diagnostics==dict(max_output_tokens=16384,timeout=240)
+    assert result.usage['reasoning_tokens']==12000 and result.status=='TRUNCATED'
+    assert result.request_count==1

@@ -59,6 +59,7 @@ class SearchRequest(BaseModel):
 
 
 class RAGRequest(BaseModel):
+    generation_mode: Literal["minimax", "local", "compare"] = "minimax"
     claim_support_threshold: float | None = Field(None,ge=0,le=1,allow_inf_nan=False)
     rag_pipeline_mode: RAGPipelineMode = RAGPipelineMode.BASELINE
     rerank_threshold: float | None = Field(None,ge=0,le=1)
