@@ -119,7 +119,7 @@ class CandidateProcessor:
         deduped,diagnostics=(hits,[]) if precleaned else self.dedup(hits,minimum_score)
         groups={}
         for hit in deduped:groups.setdefault((hit['document_id'],hit.get('section','')),[]).append(hit)
-        candidates=[];retrieved={h['chunk_id'] for h in deduped}
+        candidates=[];retrieved={h['chunk_id'] for h in deduped};expansion_exclusions=[]
         for group in groups.values():
             for hit in group:
                 anchor={**self.active[hit['chunk_id']],**hit};chunk=self.active[hit['chunk_id']]
@@ -139,6 +139,8 @@ class CandidateProcessor:
                     parent=next((s for s in segments if s[0].get('section')==hit['section'] and anchored&{b['block_id'] for b in s}),None)
                     if parent and len(parent)<len(all_blocks):
                         text='\n'.join(b['text'] for b in parent)
+                        if len(text.encode())>self.expansion_budget and anchored<={b['block_id'] for b in parent}:
+                            expansion_exclusions.append(dict(anchor_chunk_id=hit['chunk_id'],reason='PARENT_EXPANSION_BUDGET',block_ids=[b['block_id'] for b in parent],text_bytes=len(text.encode()),budget=self.expansion_budget))
                         if len(text.encode())<=self.expansion_budget and anchored<={b['block_id'] for b in parent}:
                             members=[c for c in same if c.get('section')==hit['section'] and set(c.get('source_block_ids',[]))&{b['block_id'] for b in parent}]
                             result=self.make(anchor,members,text,'parent_section',parent)
@@ -151,6 +153,8 @@ class CandidateProcessor:
                         gap=max(chunk.get('char_start',0),neighbor.get('char_start',0))-min(chunk.get('char_end',0),neighbor.get('char_end',0))
                         if not useful or gap>2:continue
                         trial=members+[neighbor];text=self.join(trial)
+                        if len(trial)<len(same) and len(text.encode())>self.expansion_budget:
+                            expansion_exclusions.append(dict(anchor_chunk_id=hit['chunk_id'],excluded_chunk_id=neighbor['chunk_id'],reason='NEIGHBOR_EXPANSION_BUDGET',text_bytes=len(text.encode()),budget=self.expansion_budget))
                         if len(trial)<len(same) and len(text.encode())<=self.expansion_budget:members=trial
                     if len(members)>1:result=self.make(anchor,sorted(members,key=lambda c:c['chunk_index']),self.join(members),'fixed_neighbors')
                 # Multiple anchors may resolve to one logical context.
@@ -159,22 +163,41 @@ class CandidateProcessor:
                     old.anchor_chunk_ids=sorted(set(old.anchor_chunk_ids+result.anchor_chunk_ids))
                     old.original_ranks=sorted(set(old.original_ranks+result.original_ranks))
                 else:candidates.append(result)
-        return candidates,dict(candidates_after_dedup=len(deduped),dedup_diagnostics=diagnostics,groups=len(groups),contexts_built=len(candidates))
+        return candidates,dict(expansion_budget_exclusions=expansion_exclusions,candidates_after_dedup=len(deduped),dedup_diagnostics=diagnostics,groups=len(groups),contexts_built=len(candidates))
 
 
 class ContextSelector:
     def select(self,candidates,max_sources,budget,builder,diversity_penalty=0.04):
         selected=[];remaining=list(candidates);docs={};sections={}
+        self.diagnostics=[]
+        def record(candidate,reason,**extra):
+            self.diagnostics.append(dict(source_id=candidate.source_id,context_ids=list(candidate.anchor_chunk_ids),
+                expanded_chunk_ids=list(candidate.expanded_chunk_ids),reason=reason,
+                text_bytes=len(candidate.context_text.encode('utf-8')),**extra))
+        def excluded_reason(candidate):
+            excluded=getattr(builder,'diagnostics',{}).get('budget_excluded',[])
+            return 'BUDGET' if any(e['chunk_id'] in candidate.anchor_chunk_ids for e in excluded) else 'DUPLICATE'
+
         while remaining and len(selected)<max_sources:
             remaining.sort(key=lambda c:(-((c.rerank_score if c.rerank_score is not None else c.retrieval_score)-diversity_penalty*docs.get(c.document_id,0)-diversity_penalty/2*sections.get((c.document_id,c.section),0)),min(c.original_ranks),c.source_id))
             candidate=remaining.pop(0)
-            if any(near_duplicate(candidate.as_hit(),s.as_hit()) for s in selected):continue
+            if any(near_duplicate(candidate.as_hit(),s.as_hit()) for s in selected):
+                record(candidate,'NEAR_DUPLICATE');continue
             trial=builder.build(selected+[candidate],budget)
             if trial['used_count']!=len(selected)+1:
-                if candidate.expansion_type=='anchor':continue
+                original=candidate
+                reason=excluded_reason(candidate)
+                if candidate.expansion_type=='anchor':
+                    record(candidate,reason);continue
                 candidate=candidate.fallback();trial=builder.build(selected+[candidate],budget)
-                if trial['used_count']!=len(selected)+1:continue
-                if any(near_duplicate(candidate.as_hit(),s.as_hit()) for s in selected):continue
+                if trial['used_count']!=len(selected)+1:
+                    record(original,excluded_reason(candidate));continue
+                if any(near_duplicate(candidate.as_hit(),s.as_hit()) for s in selected):
+                    record(original,'NEAR_DUPLICATE');continue
+                record(original,reason+'_FALLBACK',retained_context_ids=list(candidate.anchor_chunk_ids),
+                       retained_bytes=len(candidate.context_text.encode('utf-8')))
+
             selected.append(candidate);docs[candidate.document_id]=docs.get(candidate.document_id,0)+1
             group=(candidate.document_id,candidate.section);sections[group]=sections.get(group,0)+1
+        for candidate in remaining:record(candidate,'MAX_CONTEXTS')
         return selected

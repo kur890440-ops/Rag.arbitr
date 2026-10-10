@@ -1,0 +1,60 @@
+{% macro value(number, unit='') -%}
+{% if number is none %}—{% elif unit == 'ms' %}{{'%.3f'|format(number / 1000)}} s{% elif unit == 'MiB' %}{{'%.1f'|format(number)}} MiB{% else %}{{number}}{% endif %}
+{%- endmacro %}
+<div class="local-optimization-demo" data-local-optimization>
+{% if not questions %}<p class="muted">Для этого корпуса ещё нет завершённого сравнения Local: Before / After.</p>{% else %}
+<p class="muted">Total = сохранённое время retrieval + генерация, grounding и выгрузка модели. Output tokens — сумма попыток, включая repair. RAM — измеренный пик суммы RSS benchmark/Ollama; VRAM — измеренный пик всего устройства.</p>{% endif %}
+{% for question in questions %}{% set snapshot=question.snapshot %}
+<section class="rag-comparison" data-local-question="{{snapshot.question_id}}">
+<h3>{{snapshot.question}}</h3>
+<p class="muted">Local: Before / After · один вопрос и закреплённый контекст для обоих вариантов</p>
+<div class="generation-cards">
+{% for variant in question.variants %}{% set run=variant.run %}{% set profile=variant.profile %}{% set metrics=variant.metrics %}
+<article class="generation-card" data-local-variant="{{loop.index}}">
+<h3>{{variant.label}}</h3>
+<dl class="local-profile">
+{% for key,label in [('model','Model'),('temperature','Temperature'),('context_window','Context window / num_ctx'),('max_output_tokens','Max tokens / num_predict'),('prompt_version','Prompt version'),('keep_alive','keep_alive')] %}
+<dt>{{label}}</dt><dd data-parameter="{{key}}">{{profile.get(key) if profile.get(key) is not none else '—'}}</dd>
+{% if key == 'model' %}<dt>Quantization</dt><dd data-parameter="quantization">{{variant.quantization or '—'}}</dd>{% endif %}
+{% endfor %}</dl>
+<div class="answer-text answer-markdown">{{(run.answer or 'Ответ не получен')|answer_markdown}}</div>
+<dl class="local-profile local-run-metrics">
+{% for key,label,unit in [('generation_ms','Generation time','ms'),('total_ms','Total time','ms'),('citations_count','Citations count',''),('claims_count','Claims count',''),('repair_count','Repair count',''),('output_tokens','Output tokens',''),('ram_mib','RAM peak','MiB'),('vram_mib','VRAM peak','MiB')] %}
+{% if key not in ['ram_mib','vram_mib'] or metrics[key] is not none %}<dt>{{label}}</dt><dd data-metric="{{key}}">{{value(metrics[key],unit)}}</dd>{% endif %}
+{% endfor %}
+<dt>Grounding status</dt><dd><strong class="generation-status {{(run.grounding_label or 'pending')|lower}}" title="{{run.grounding_status}}">{{run.grounding_label or '—'}}</strong> <small>{{run.grounding_status}}</small></dd>
+</dl>
+{% if variant.quality_note %}<p>{{variant.quality_note}}</p>{% endif %}
+{% if run.error %}<p class="rag-error">{{run.error_message}} · {{run.error.get('code')}}</p>{% endif %}
+<details><summary>Проверенные цитаты · {{run.citations_count}}</summary>
+{% for citation in run.citations %}<p><strong>{{citation.claim_id}} [{{citation.source_id}}]</strong></p><blockquote>{{citation.quote}}</blockquote><p class="muted">{{citation.file_title}} · {{citation.page_start}}–{{citation.page_end}}</p>{% if citation.locator.get('recognition_id') %}<button type="button" class="source-page secondary" data-run="{{snapshot.processing_run_id}}" data-page="{{citation.locator.recognition_id}}">Страница {{citation.page_start}}</button>{% endif %}{% endfor %}
+</details>
+</article>{% endfor %}
+</div>
+<section class="local-deltas" data-local-deltas><h3>Результат оптимизации</h3><dl class="local-profile">
+{% for key,label,unit in [('generation_ms','Generation','ms'),('total_ms','Total','ms'),('citations_count','Citations',''),('claims_count','Claims',''),('repair_count','Repairs',''),('output_tokens','Output tokens',''),('ram_mib','RAM peak','MiB'),('vram_mib','VRAM peak','MiB')] %}{% set delta=question.deltas[key] %}
+{% if key not in ['ram_mib','vram_mib'] or (delta.before is not none and delta.after is not none) %}
+<dt>{{label}}</dt><dd data-delta="{{key}}">{{value(delta.before,unit)}} → {{value(delta.after,unit)}}{% if delta.percent is not none %} <span>({{'%+.1f'|format(delta.percent)}}%)</span>{% endif %}</dd>
+{% endif %}{% endfor %}
+<dt>Grounding</dt><dd data-delta="grounding">{{question.variants[0].run.grounding_label or '—'}} → {{question.variants[1].run.grounding_label or '—'}}</dd>
+</dl></section>
+<details data-shared-sources open><summary>Одинаковый RAG-контекст</summary>
+<dl class="local-profile">
+<dt>Retrieval run</dt><dd>{{snapshot.retrieval_run_id}}</dd>
+<dt>Final contexts count</dt><dd>{{snapshot.sources|length}}</dd>
+<dt>Context IDs · порядок сохранён</dt><dd data-context-ids>{{snapshot.context_ids|join(', ')}}</dd>
+<dt>Context size</dt><dd>{{snapshot.context_size}} UTF-8 bytes</dd>
+<dt>Context snapshot</dt><dd>{{snapshot.context_snapshot_id}}</dd>
+<dt>SHA-256 snapshot</dt><dd>{{snapshot.integrity_sha256}}</dd>
+</dl>
+<p class="muted">Оба результата проверены по одному сохранённому snapshot. Retrieval, rerank и ContextBuilder при отображении не запускаются.</p>
+{% for source in snapshot.sources %}<details data-shared-source="{{source.reference}}"><summary>[{{source.reference}}] {{source.file_name}} · стр. {{source.page_start}}–{{source.page_end}}</summary><pre>{{source.text}}</pre>
+{% for page in source.get('source_pages',[]) %}<button type="button" class="source-page secondary" data-run="{{snapshot.processing_run_id}}" data-page="{{page.recognition_id}}">Страница {{page.page_number}}</button>{% endfor %}
+</details>{% endfor %}
+</details>
+{% if question.experiments and not tab_view %}<details class="local-experiments"><summary>Experiment parameters · {{question.experiments|length}}</summary>
+<div class="local-table-scroll"><table><thead><tr>{% for label in ['Variant','Temperature','Context','Max tokens','Prompt','Quantization','Generation ms','Grounding','Repairs'] %}<th>{{label}}</th>{% endfor %}</tr></thead><tbody>
+{% for experiment in question.experiments %}<tr><td>{{experiment.label}}</td><td>{{experiment.profile.get('temperature') if experiment.profile.get('temperature') is not none else '—'}}</td><td>{{experiment.profile.get('context_window','—')}}</td><td>{{experiment.profile.get('max_output_tokens','—')}}</td><td>{{experiment.profile.get('prompt_version') or '—'}}</td><td>{{experiment.quantization or '—'}}</td><td>{{'%.1f'|format(experiment.metrics.generation_ms) if experiment.metrics.generation_ms is not none else '—'}}</td><td>{{experiment.run.grounding_label or '—'}}{% if experiment.run.error %} · {{experiment.run.error.get('code')}}{% endif %}</td><td>{{experiment.metrics.repair_count}}</td></tr>{% endfor %}
+</tbody></table></div></details>{% endif %}
+</section>{% endfor %}
+</div>

@@ -305,3 +305,42 @@ API дополняет существующий record типизированн�
 Для облачной ветви Compare доступны опциональные `[llm]` настройки `compare_max_output_tokens` и `compare_timeout`. Если они не заданы, используются обычные `max_output_tokens`/`timeout`. В текущем локальном config после подтверждённого `finish_reason=length` на repair установлены 16384 и 240 секунд. MiniMax-only, Chat и exhaustive используют прежние лимиты; Local, общий context и one-repair max не изменены.
 
 Фактические лимиты записываются в `effective_cloud_generation_settings` и `LLMResult.diagnostics`. Числовой `reasoning_tokens` сохраняется из usage при наличии; текст reasoning не сохраняется этим изменением. Повышение лимита не гарантирует прохождение grounding.
+
+## Day 29 · Оптимизация Local
+
+История предыдущих этапов Day29 приведена ниже. Текущая задача — структурированный анализ судебного акта; актуальные решения находятся в `L1_LOCAL_GENERATION_PROVIDER.md` и `L2_DAY29_DECISIONS.md`.
+
+Day29 — ручная лаборатория в отдельном табе **LLM Optimization**: `http://127.0.0.1:8765/#llm-optimization`. Model, temperature, num_ctx, num_predict, prompt version и seed задаются для отдельного эксперимента; global config не изменяется. Новый вопрос использует обычный RAG pipeline. «Повторить с тем же контекстом» запускает только Local generation/grounding на сохранённом snapshot. История и сравнение двух запусков доступны здесь же; FAIR требует одинакового вопроса и контекста. Исторические benchmark-измерения остаются в раскрываемом архиве. В Search/Chat данные лаборатории не вставляются.
+
+Local поддерживает `[llm.local] temperature`, `seed`, `context_window`, `max_output_tokens`, `prompt_version`. Версии prompt: `day28-baseline` и `day29-legal-v1`. Для совместимости отсутствие новых полей сохраняет исходный профиль; измеренный рекомендуемый профиль текущего workspace и результаты приведены в [DAY29_REPORT.md](DAY29_REPORT.md). Настройки применяются только к Local. Уточнение к историческому описанию Day28 выше: после выбора optimized prompt сообщения Local и MiniMax могут различаться; общий контекст, порядок источников, JSON-контракт и grounding остаются общими. Версия каждого prompt записывается отдельно.
+
+В `LLMResult.diagnostics.ollama` сохраняются предоставленные Ollama `prompt_eval_count`, `eval_count`, `prompt_eval_duration`, `eval_duration`, `load_duration`, `total_duration`; длительности Ollama — наносекунды. `generation_attempts` хранит числовые метрики каждой попытки, включая repair. Generation включает загрузку модели и проверку доступности; total включает grounding. Повтор benchmark использует сохранённое время retrieval, что отмечено в артефактах.
+
+Артефакты `data/day29/` исключены из Git: baseline с хешами кода/модели и prompt, `qN-snapshot.json` с SHA-256, результаты каждой настройки, таблица CSV, заметки качества и UI screenshots. Snapshot создаётся один раз; при несовпадении SHA-256 replay запрещён. Слишком большой prompt/repair возвращает `LOCAL_CONTEXT_LIMIT`, без обрезания RAG-контекста. Benchmark вызывает существующие LocalLLMProvider, CitationBuilder и grounded_generation, без нового retrieval pipeline или LLM-as-judge.
+
+Примеры повторов на закреплённом корпусе (каждое новое имя варианта записывается один раз):
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.check_day29_real variant --name repeat-temp01 --temperature 0.1
+.\.venv\Scripts\python.exe -m scripts.check_day29_real variant --name repeat-prompt --prompt-version day29-legal-v1
+.\.venv\Scripts\python.exe -m scripts.report_day29
+.\.venv\Scripts\python.exe -m scripts.check_day29_ui
+```
+
+Для нового набора нужны baseline manifest и исходные записи Day28 на текущем корпусе; `freeze` пропускает уже сохранённые snapshot’ы. Существующие измерения не перезаписываются. MiniMax не вызывается этими benchmark/UI-командами. Сравнение квантовок не заявляется, если в Ollama установлена только одна подходящая текстовая модель.
+
+Day29: исходный `keep_alive=0` остаётся совместимым значением. Рекомендуемый профиль вынесен в [DAY29_PROFILE.toml](DAY29_PROFILE.toml) и применён к `[llm.local]` текущего `config.toml`: `keep_alive="60s"`, temperature=0, seed=42, ctx=16384, max=2048, `prompt_version="day28-baseline"`. Новые prompt’ы `day29-legal-v1/v2/v3` проверены отдельно, но не рекомендованы: они дали регрессии на части вопросов. Это уточняет перечисление версий выше.
+
+При `keep_alive="60s"` существующая operation lock удерживается на протяжении Local generation → grounding → optional repair. Модель не загружается заново для repair; в `finally` выполняется явная выгрузка. TTL 60 секунд ограничивает удержание при сбое очистки; такой сбой записывается как `cleanup_error`, не скрывая уже проверенный ответ. Cloud и OCR-провайдеры не меняются. Поведение `keep_alive` и выгрузки соответствует [Ollama API](https://github.com/ollama/ollama/blob/main/docs/api.md).
+
+Day29 diagnostics: в каждом новом manual run доступны счётчики retrieval/cleanup/rerank/threshold, точные final contexts, budget exclusions и exact transport payload каждой попытки (включая repair). До inference показывается **UTF-8 estimate**, после — **actual Ollama prompt_eval_count/eval_count** и timings; estimate не выдаётся за model token count. Старые записи без capture остаются с UNKNOWN/прочерками. Reuse слишком большого snapshot требует коррекции num_ctx/num_predict и не обрезает контекст. Подробности и проверки — [DAY29_REPORT.md](DAY29_REPORT.md).
+
+### Day29: Direct Local LLM Lab (предыдущий этап)
+
+На этом этапе вкладка [LLM Optimization](http://127.0.0.1:8765/#llm-optimization) — прямые тесты существующего LocalLLMProvider/Ollama: вопрос, exact model tag, temperature, num_ctx, num_predict, seed и собственные prompts `day29-baseline` / `day29-optimized`. Новые запуски не используют RAG и не меняют global config. Результаты отображаются рядом в колонках; любой можно выбрать baseline. Скорость вычисляется по точным Ollama eval_count/eval_duration, токены/память выводятся только при наличии измерений. Старые RAG experiments сохранены отдельно в раскрываемом архиве. Подробности и ограничения измерений: `DAY29_REPORT.md`, раздел «Day29 Direct LLM Lab».
+
+Для сравнения квантизаций Day29 установлены `qwen3:4b-q4_K_M` и `qwen3:4b-q8_0` (обе Qwen3 4B, metadata verified). Они автоматически появляются в Model selector. Реальная пара на RTX 3050 8 GB с одинаковыми параметрами сохранена в истории; результаты и ограничения измерений — в `DAY29_REPORT.md`, раздел «Day29 Q4_K_M vs Q8_0». Q8 использовала частичный CPU offload при num_ctx=16384.
+
+### Текущая задача Day29: анализ судебного акта
+
+LLM Optimization теперь получает полный текст выбранного canonical normalized документа и выполняет прямой структурированный анализ по семи разделам. В сравнении фиксируются одинаковый текст/SHA-256 и задача; доступны ручные оценки восьми критериев качества, параметры и метрики. Старые свободные Q4/Q8 эксперименты сохранены в отдельном архиве. Актуальная архитектура: [L1_LOCAL_GENERATION_PROVIDER.md](L1_LOCAL_GENERATION_PROVIDER.md); заменённые решения Day29: [L2_DAY29_DECISIONS.md](L2_DAY29_DECISIONS.md). Оба документа помечены `@NO_COMPRESS`.

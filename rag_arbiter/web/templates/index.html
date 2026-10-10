@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>rag.арбитр · Document Lab</title><link rel="stylesheet" href="/static/style.css">
-<script src="/static/htmx.min.js" defer></script><script src="/static/app.js" defer></script><script src="/static/rag.js" defer></script></head>
+<script src="/static/htmx.min.js" defer></script><script src="/static/app.js" defer></script><script src="/static/rag.js" defer></script><script src="/static/optimization.js" defer></script></head>
 <body data-run="{{ selected }}" hx-history="false">
 <header class="app-header"><a class="brand" href="/">rag.<b>арбитр</b></a><span>DAY 22 · FIRST RAG QUERY</span><button class="secondary" id="toggle-files">Файлы</button></header>
 <div id="system" hx-get="/ui/system" hx-trigger="load">Проверка системы…</div>
 <div class="app-layout"><main><nav class="workspace-tabs" aria-label="Workspace">
-<button data-tab="overview">Обзор</button><button data-tab="recognition">Распознавание</button><button data-tab="chunking">Chunking</button><button data-tab="retrieval">Поиск</button><a href="/chat">Чат</a><button data-tab="evaluation">Evaluation</button><button data-tab="diagnostics">Diagnostics</button></nav>
+<button data-tab="overview">Обзор</button><button data-tab="recognition">Распознавание</button><button data-tab="chunking">Chunking</button><button data-tab="retrieval">Поиск</button><a href="/chat">Чат</a><button data-tab="evaluation">Evaluation</button><button data-tab="diagnostics">Diagnostics</button><button data-tab="llm-optimization">LLM Optimization</button></nav>
 <div id="notification" role="alert" hidden></div>
 <div class="top-grid" data-tab-panel="overview"><section id="upload" class="panel"><p class="eyebrow">01 / ИСТОЧНИКИ</p><h2>Добавьте документы</h2>
 <form id="upload-form">
@@ -24,5 +24,6 @@
 <p class="muted" id="recognition-average">—</p>
 <div id="recognition-summary" hidden></div>
 <button id="cancel-run" class="secondary danger" disabled>Отменить run</button><details><summary>Техническая диагностика</summary><pre id="run-diagnostics">No run yet</pre></details></section></div>
+<section data-tab-panel="llm-optimization" id="llm-optimization" class="panel" hidden><div id="optimization-content"></div></section>
 <div id="workspace"><section class="panel"><p class="muted">Распознавание, чанки и поиск появятся после обработки.</p></section></div>
 <footer>rag.арбитр · Qwen → BGE-M3 → Qdrant</footer></main><aside id="file-panel"><h2>ФАЙЛЫ</h2><p class="legend">с = страницы · Q = Qwen · O = Classic OCR fallback<br>F = Fixed Size chunks · S = Structure Aware chunks · E = embeddings · ! = errors</p><input id="file-search" placeholder="Поиск по имени файла" aria-label="Поиск по имени файла"><div id="file-list-content"></div></aside></div></body></html>

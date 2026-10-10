@@ -10,7 +10,7 @@ class MetadataStore:
               "processing_run_errors", "uploads", "recognition_cache", "chunk_settings", "normalized_documents",
               "rag_evaluation_questions", "rag_comparison_runs", "rag_batches",
               "exhaustive_batch_results", "exhaustive_map_cache", "query_rewrite_cache",
-              "chat_sessions", "chat_messages", "chat_turns", "task_states", "dialogue_working_contexts")
+              "local_llm_experiment_runs", "chat_sessions", "chat_messages", "chat_turns", "task_states", "dialogue_working_contexts")
 
     def __init__(self, path):
         self.db = sqlite3.connect(path, timeout=30)

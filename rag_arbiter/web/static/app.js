@@ -10,6 +10,12 @@ let selectedDocument = new URLSearchParams(location.search).get('document_id') |
 const collapsedGroups = {};
 function setTab(name) {
   activeTab=name;
+  if(name==='llm-optimization'){
+    history.replaceState(null,'',location.pathname+location.search+'#llm-optimization');
+    window.loadOptimization?.();
+  } else if(['#local-optimization','#llm-optimization'].includes(location.hash)){
+    history.replaceState(null,'',location.pathname+location.search);
+  }
   document.querySelectorAll('[data-tab-panel]').forEach(el=>el.hidden=el.dataset.tabPanel!==name);
   document.querySelectorAll('[data-tab]').forEach(el=>el.setAttribute('aria-selected',String(el.dataset.tab===name)));
 }
@@ -143,11 +149,11 @@ async function loadRun(id){
   $('workspace').replaceChildren();
   $('recognition-summary').replaceChildren();
   if(!id) return;
-  history.replaceState(null,'',`/?run_id=${encodeURIComponent(id)}`);
+  history.replaceState(null,'',`/?run_id=${encodeURIComponent(id)}${['#local-optimization','#llm-optimization'].includes(location.hash) ? location.hash : ''}`);
   if(!$('run-select').querySelector(`option[value="${id}"]`)) {const option=new Option(`Run ${id.slice(0,8)}`,id);$('run-select').add(option);}
   $('run-select').value=id; await refresh();
   if(currentRun!==id) return;
-  setTab(terminal.has(latestRun?.status)?'chunking':'overview');
+  setTab(['#local-optimization','#llm-optimization'].includes(location.hash)?'llm-optimization':terminal.has(latestRun?.status)?'chunking':'overview');
   workspace();
   if(!terminal.has(latestRun?.status)){
     stream=new EventSource(`/runs/${id}/events`);
@@ -218,6 +224,6 @@ document.body.addEventListener('change',async event=>{
 document.body.addEventListener('toggle',event=>{if(event.target.matches?.('.file-group'))collapsedGroups[event.target.dataset.group]=!event.target.open;},true);
 $('file-search').addEventListener('input',filterFiles);
 $('toggle-files').addEventListener('click',()=>$('file-panel').classList.toggle('open'));
-setTab('overview');
+setTab(['#local-optimization','#llm-optimization'].includes(location.hash)?'llm-optimization':'overview');
 setInterval(elapsed,1000);
 if(currentRun)loadRun(currentRun);

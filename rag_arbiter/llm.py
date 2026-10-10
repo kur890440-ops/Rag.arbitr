@@ -10,6 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.parse import urlparse
 from pydantic import BaseModel, Field, SecretStr, model_validator
+from .generation_prompts import PromptVersion, LOCAL_LEGAL_SYSTEM, LOCAL_LEGAL_SYSTEM_V2, LOCAL_LEGAL_SYSTEM_V3
 
 BASE_SYSTEM = ('Отвечай кратко, по существу и по-русски: обычно 1–3 предложения, без общего рассуждения и ненужного пересказа. Если данных недостаточно, сообщи об этом кратко. '
     'Если предоставлены источники, используй только содержащиеся в них факты и ссылки [S1], [S2] и т.д.; '
@@ -26,6 +27,10 @@ class LocalLLMConfig(BaseModel):
     context_window: int = Field(16384, ge=4096, le=32768)
     max_output_tokens: int = Field(2048, ge=128, le=8192)
     repair_reserve: int = Field(4096, ge=2048, le=12000)
+    temperature: float = Field(0, ge=0, le=2, allow_inf_nan=False)
+    seed: int = 42
+    keep_alive: Literal[0, '60s'] = 0
+    prompt_version: PromptVersion = 'day28-baseline'
 
     @model_validator(mode='after')
     def validate_local(self):
@@ -82,13 +87,22 @@ class LLMConfig(BaseModel):
 
 
 class LLMRequest(BaseModel):
+    capture_diagnostics: bool = False
+    diagnostic_rag_context: str | None = None
     question: str
     context: str | None = None
     context_type: Literal['rag','full_document','grounded_rag'] = 'rag'
 
-    def messages(self):
+    prompt_version: PromptVersion = 'day28-baseline'
+
+    def messages(self, prompt_version=None):
         """Shared prompt construction; adapters only translate the transport."""
-        return [{'role': 'system', 'content': BASE_SYSTEM},
+        version = prompt_version or self.prompt_version
+        if version not in ('day28-baseline', 'day29-legal-v1', 'day29-legal-v2', 'day29-legal-v3'):
+            raise ValueError('Unknown generation prompt version')
+        systems = {'day28-baseline': BASE_SYSTEM, 'day29-legal-v1': LOCAL_LEGAL_SYSTEM, 'day29-legal-v2': LOCAL_LEGAL_SYSTEM_V2, 'day29-legal-v3': LOCAL_LEGAL_SYSTEM_V3}
+        system = systems[version] if self.context_type == 'grounded_rag' else BASE_SYSTEM
+        return [{'role': 'system', 'content': system},
                 {'role': 'user', 'content': self.user_content()}]
 
     def output_schema(self):

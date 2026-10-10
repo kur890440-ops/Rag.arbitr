@@ -1,0 +1,26 @@
+<h2>LLM Optimization · Day29</h2>
+<div class="generation-shared" data-optimization-summary>
+<dl class="local-profile">
+<dt>Local model</dt><dd>{{summary.model}}</dd>
+<dt>Quantization</dt><dd>{{summary.quantization or '—'}}</dd>
+<dt>Ollama status</dt><dd>{{summary.status}}</dd>
+{% if summary.device %}<dt>Device · обнаружен GPU</dt><dd>{{summary.device}}</dd>{% endif %}
+</dl>
+<h3>Recommended profile · текущий config</h3>
+<dl class="local-profile">
+{% for key,label in [('temperature','Temperature'),('context_window','Context window / num_ctx'),('max_output_tokens','Max tokens / num_predict'),('prompt_version','Prompt version'),('keep_alive','keep_alive')] %}
+<dt>{{label}}</dt><dd data-recommended="{{key}}">{{summary.profile[key]}}</dd>
+{% endfor %}</dl>
+</div>
+{% if available %}<form hx-get="/ui/llm-optimization/archive" hx-trigger="change" hx-target="#optimization-archive">
+<label for="optimization-question">Тестовый вопрос</label>
+<select id="optimization-question" name="question_id">
+{% for item in available %}<option value="{{item.snapshot.question_id}}" {% if questions and item.snapshot.question_id == questions[0].snapshot.question_id %}selected{% endif %}>{{item.snapshot.question_id}} · {{item.snapshot.question}}</option>{% endfor %}
+</select></form>{% else %}<p class="empty">Benchmark ещё не запускался или нет завершённой пары для одного context snapshot.</p>{% endif %}
+{% include 'local_optimization.html' %}
+<h3>Все эксперименты Day29</h3>
+{% if experiments %}<div class="local-experiments local-table-scroll" data-all-experiments><table><thead><tr>
+{% for label in ['Question','Variant','Temperature','Context','Max tokens','Prompt','Quantization','Generation ms','Grounding','Citations','Repairs','Output tokens','Status'] %}<th>{{label}}</th>{% endfor %}
+</tr></thead><tbody>
+{% for e in experiments %}<tr><td>{{e.question_id}}</td><td>{{e.label}}</td><td>{{e.profile.get('temperature') if e.profile.get('temperature') is not none else '—'}}</td><td>{{e.profile.get('context_window','—')}}</td><td>{{e.profile.get('max_output_tokens','—')}}</td><td>{{e.profile.get('prompt_version') or '—'}}</td><td>{{e.quantization or '—'}}</td><td>{{'%.1f'|format(e.metrics.generation_ms) if e.metrics.generation_ms is not none else '—'}}</td><td>{{e.run.grounding_label or '—'}}</td><td>{{e.metrics.citations_count}}</td><td>{{e.metrics.repair_count}}</td><td>{{e.metrics.output_tokens if e.metrics.output_tokens is not none else '—'}}</td><td>{{e.run.status}}{% if e.run.error %} · {{e.run.error.get('code')}}{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="empty">Сохранённых экспериментов пока нет.</p>{% endif %}

@@ -1,0 +1,57 @@
+{% macro value(v, unit='') -%}{% if v is not none %}{{'%.2f'|format(v) if v is float else v}}{{unit}}{% else %}—{% endif %}{%- endmacro %}
+{% for r in rows %}
+<article class="direct-run {% if r.id==baseline %}direct-baseline{% endif %}" data-direct-run="{{r.id}}" data-finished="{{'true' if r.finished else 'false'}}">
+<h3>RUN {{loop.index}} {% if r.id==baseline %} / BASELINE{% endif %}</h3>
+<button type="button" data-direct-baseline="{{r.id}}">Сделать baseline</button>
+<dl class="direct-parameters">
+<dt>Run ID</dt><dd>{{r.id}}</dd>
+<dt>Model / exact tag</dt><dd>{{r.profile.model}}</dd>
+<dt>Quantization</dt><dd>{{r.quantization or '—'}}</dd>
+<dt>Temperature</dt><dd>{{r.profile.temperature}}</dd>
+<dt>Context window / num_ctx</dt><dd>{{r.profile.context_window}}</dd>
+<dt>Max tokens / num_predict</dt><dd>{{r.profile.max_output_tokens}}</dd>
+<dt>Prompt version</dt><dd>{{r.profile.prompt_version}}</dd>
+<dt>Seed</dt><dd>{{r.profile.seed}}</dd>
+</dl>
+{% if r.document %}<h4>Судебный акт</h4><p>{{r.document.file_name}} · {{r.document.page_count}} стр.</p><p class="muted">Версия: {{r.document.version}}<br>SHA-256: {{r.document.sha256}}<br>Полный текст: {{r.document.size_bytes}} bytes</p><details><summary>Текст документа</summary><pre class="direct-text">{{r.document.text}}</pre></details>
+{% else %}<h4>Question ? legacy direct</h4><p class="direct-text">{{r.question}}</p>{% endif %}
+{% if r.input_budget %}<p class="muted" data-input-budget>Бюджет контекста: {{r.input_budget.total_estimated_input}} токенов входа + {{r.input_budget.template_safety_reserve}} резерв шаблона + {{r.input_budget.num_predict}} ответ = {{r.input_budget.estimated_required}} / {{r.input_budget.num_ctx}}.<br>Метод: {{r.input_budget.method}}. Фактический Prompt tokens — в метриках Ollama.</p>{% endif %}
+<h4>Ответ</h4><div class="direct-answer direct-text">{{r.answer or '—'}}</div>
+<dl class="direct-parameters">
+<dt>Generation time</dt><dd>{{value(r.generation_duration,' s')}}</dd>
+<dt>Total time</dt><dd>{{value(r.total_duration,' s')}}</dd>
+<dt>Prompt tokens</dt><dd>{{value(r.prompt_tokens)}}</dd>
+<dt>Output tokens</dt><dd>{{value(r.output_tokens)}}</dd>
+<dt>Generation speed</dt><dd>{{value(r.tokens_per_second,' tok/s')}}</dd>
+<dt>Context utilization</dt><dd>{% if r.prompt_tokens is not none %}{{'%.1f'|format(r.prompt_tokens/r.profile.context_window*100)}}%{% else %}—{% endif %}</dd>
+{% if r.ram_peak is not none %}<dt>RAM peak · приложение + Ollama RSS</dt><dd>{{'%.3f'|format(r.ram_peak/1073741824)}} GiB</dd>{% endif %}
+{% if r.vram_peak is not none %}<dt>VRAM peak · всё GPU-устройство</dt><dd>{{r.vram_peak}} MiB</dd>{% endif %}
+<dt>Status</dt><dd data-direct-status>{{r.status}}</dd>
+{% if r.error %}<dt>Error</dt><dd class="rag-error">{{r.error.code}}</dd>{% endif %}
+</dl>
+{% set comp=comparisons[r.id] %}
+{% if comp %}<section class="direct-delta"><h4>vs Baseline</h4>
+<strong>{{'FAIR COMPARISON · один текст и задача' if comp.fair and comp.judicial else 'FAIR COMPARISON' if comp.fair else 'DIFFERENT DOCUMENT / TASK' if comp.judicial else 'DIFFERENT QUESTION'}}</strong>
+{% for key,d in comp.deltas.items() %}
+{% set label={'generation_duration':'Generation (s)','tokens_per_second':'Speed (tok/s)','output_tokens':'Output (tokens)','ram_peak':'RAM peak (bytes)','vram_peak':'VRAM peak (MiB)'} %}
+<p data-direct-delta="{{key}}">{{label[key]}}: {{value(d.before)}} → {{value(d.after)}}{% if d.percent is not none %} ({{'%+.1f'|format(d.percent)}}%){% endif %}</p>
+{% endfor %}</section>{% endif %}
+{% if r.kind=='judicial_act' and r.finished %}
+<details><summary>Качество · ручная оценка</summary>
+<form data-quality-review="{{r.id}}">
+{% set review=r.quality_review or {} %}{% set scores=review.get('scores',{}) %}
+{% for key,label in quality_labels.items() %}<label>{{label}}<select name="{{key}}">{% for code,title in [('not_evaluated','Не оценено'),('pass','Да'),('partial','Частично'),('fail','Нет')] %}<option value="{{code}}" {% if scores.get(key,'not_evaluated')==code %}selected{% endif %}>{{title}}</option>{% endfor %}</select></label>{% endfor %}
+<label>Комментарий<textarea name="note" maxlength="4000">{{review.get('note','')}}</textarea></label><button type="submit">Сохранить оценку</button><span data-review-status></span>
+</form><small>Оценка пользователя; скорость не доказывает качество. Отсутствующие сведения должны быть отмечены в ответе.</small></details>
+{% endif %}
+<details><summary>Показать prompt</summary>
+{% if r.exact_input %}<p>{{'Отправлен в Ollama (transport attempted)' if r.transport_attempted else 'Собран, но не отправлен'}}</p>
+<h4>System message</h4><pre class="direct-text">{{r.system_prompt}}</pre>
+<h4>User message</h4><pre class="direct-text">{{r.user_prompt}}</pre>
+<details><summary>Exact request</summary><pre class="direct-text">{{r.exact_input|tojson(indent=2)}}</pre></details>
+{% else %}<p>Запрос ещё не собран / недоступен.</p>{% endif %}</details>
+<details><summary>Ollama timings</summary><dl class="direct-parameters">
+{% for key in ['load_duration','prompt_eval_duration','eval_duration','ollama_total_duration'] %}<dt>{{key}}</dt><dd>{{value(r[key]/1000000000 if r[key] is not none else none,' s')}}</dd>{% endfor %}
+</dl><small>Utilization = prompt tokens / num_ctx. Speed = eval_count / eval_duration. Generation time — время вызова provider; Total включает ожидание ресурсов и освобождение модели.</small></details>
+</article>
+{% else %}<p class="muted">Запустите тест или выберите сохранённые результаты.</p>{% endfor %}

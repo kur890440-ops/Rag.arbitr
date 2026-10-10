@@ -87,6 +87,12 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
         app.state.views = ResultsService(app.state.runs)
         app.state.system = SystemStatusService(config)
         app.state.rag = RAGComparisonService(app.state.runs,llm_factory)
+        from ..application.optimization import LocalBenchmarkService
+        app.state.local_benchmark = LocalBenchmarkService(app.state.runs)
+        from ..application.manual_optimization import ManualExperimentService
+        app.state.experiments = ManualExperimentService(app.state.runs,app.state.rag)
+        from ..application.direct_experiments import DirectExperimentService
+        app.state.direct_experiments = DirectExperimentService(app.state.runs)
         from ..application.chat import ChatSessionService
         app.state.chat = ChatSessionService(app.state.runs,app.state.rag)
         yield
@@ -149,6 +155,8 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
 
     from .chat import register_chat
     register_chat(app,render)
+    from .optimization import register_optimization
+    register_optimization(app,render)
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, run_id: str | None = None):
@@ -439,6 +447,14 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
         from ..application.grounding import evaluate_grounding
         return render(request,'rag_evaluation.html',batch=batch,grouped=grouped,grounding=evaluate_grounding(records))
 
+    @app.get('/ui/runs/{run_id}/rag/local-optimization',response_class=HTMLResponse)
+    def local_optimization_ui(request: Request,run_id: str):
+        from ..application.local_benchmark import load_demo
+        runs = request.app.state.runs
+        runs.get(run_id)
+        questions = load_demo(runs.config.web_data_path.parent / 'day29', run_id)
+        return render(request, 'local_optimization.html', questions=questions)
+
     @app.get('/api/rag/comparisons/{comparison_id}')
     def rag_result(request: Request,comparison_id: str):
         return request.app.state.rag.get(comparison_id)
@@ -460,7 +476,7 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
     def rag_history(request: Request,run_id: str):
         request.app.state.runs.get(run_id)
         with request.app.state.runs.db() as store:
-            history=[r for r in store.all('rag_comparison_runs') if r['processing_run_id']==run_id][-20:]
+            history=[r for r in store.all('rag_comparison_runs') if r['processing_run_id']==run_id and not r.get('manual_experiment')][-20:]
             batches=[b for b in store.all('rag_batches') if b.get('processing_run_id')==run_id][-10:]
         return render(request,'rag_history.html',history=list(reversed(history)),batches=list(reversed(batches)))
 

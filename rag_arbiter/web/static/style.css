@@ -19,3 +19,25 @@
 @keyframes generation-spin{to{transform:rotate(360deg)}}
 @media(max-width:1050px){.generation-cards{grid-template-columns:minmax(0,1fr)}}
 @media(prefers-reduced-motion:reduce){.generation-spinner{animation:none}}
+/* Day29 before/after: existing responsive generation cards, recorded metrics only. */
+.local-profile{display:grid;grid-template-columns:minmax(120px,1fr) minmax(0,1.4fr);gap:6px 12px;margin:12px 0}.local-profile dt{color:#65776f}.local-profile dd{margin:0;overflow-wrap:anywhere}.local-run-metrics{font-size:12px}.local-deltas{padding:12px;background:#f5f8f6;border:1px solid #dce5df;border-radius:6px;margin-bottom:14px}.local-table-scroll{overflow-x:auto;max-width:100%}.local-experiments table{border-collapse:collapse;font-size:12px;width:100%;min-width:760px}.local-experiments th,.local-experiments td{white-space:nowrap;padding:8px;border-bottom:1px solid #dce5df;text-align:left}.local-experiments{margin-top:14px}.local-optimization-demo [data-shared-source] summary{white-space:normal;overflow-wrap:anywhere}
+.experiment-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}#manual-experiment-form textarea{width:100%;font:inherit;padding:10px;border:1px solid #cbd8d2}#manual-experiment-form input:read-only{background:#f3f6f5}
+#experiment-history form{align-items:end}#experiment-history form button{margin-bottom:8px}#experiment-history td:nth-child(2){max-width:320px;white-space:normal}
+.diagnostic-text{white-space:normal!important;min-width:220px;max-width:420px}.diagnostic-text pre{max-height:300px;overflow:auto}.generation-card [data-final-contexts] td{max-width:260px;overflow-wrap:anywhere}.generation-card h4{margin:10px 0}
+
+/* Day29 direct lab: readable independent columns, no document-wide overflow. */
+.direct-toolbar {display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+.direct-columns {display:flex;align-items:flex-start;gap:16px;overflow-x:auto;max-width:100%;padding:4px 4px 18px;box-sizing:border-box}
+.direct-run {flex:0 0 400px;min-width:360px;max-width:450px;border:1px solid var(--border,#cbd8d4);border-radius:6px;padding:16px;box-sizing:border-box;overflow-wrap:anywhere;background:var(--panel,#fff)}
+.direct-baseline {border:2px solid var(--accent,#285b48)}
+.direct-parameters {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px;font-size:12px}
+.direct-parameters dd {margin:0;overflow-wrap:anywhere}
+.direct-text {white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font-family:inherit;max-height:500px;overflow:auto}
+.direct-answer {min-height:80px}
+.direct-run details {margin-top:12px}
+@media(max-width:650px){.direct-columns{display:block;overflow-x:visible}.direct-run{width:100%;min-width:0;max-width:none;margin-bottom:16px}}
+.app-layout:has(#llm-optimization:not([hidden])) {grid-template-columns:minmax(0,1fr)}
+.app-layout:has(#llm-optimization:not([hidden])) #file-panel,
+.app-layout:has(#llm-optimization:not([hidden])) #workspace,
+.app-layout:has(#llm-optimization:not([hidden])) main>footer,
+body:has(#llm-optimization:not([hidden])) #toggle-files {display:none!important}

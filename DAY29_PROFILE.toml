@@ -1,0 +1,13 @@
+# Measured recommendation; merge this table into existing config.toml.
+[llm.local]
+enabled = true
+base_url = "http://127.0.0.1:11434"
+model = "qwen3:4b-q4_K_M"
+timeout = 180.0
+context_window = 16384
+max_output_tokens = 2048
+repair_reserve = 4096
+temperature = 0.0
+seed = 42
+keep_alive = "60s"
+prompt_version = "day28-baseline"

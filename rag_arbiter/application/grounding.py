@@ -323,10 +323,14 @@ def grounded_generation(record, context, generate, builder, reranker, threshold,
     record.update(claim_support_threshold=threshold, claims_json=[], citations_json=[],
                   grounding_status='UNCHECKED', grounding_version='day24-2', structured_output_valid=None)
     current_context = context
+    record['generation_attempts'] = []
     total_usage, duration, requests = {}, 0, 0
     final_result = GroundingResult()
     for attempt in range(1 if repair_only else 0, 2):
         raw = generate(current_context, 'grounded_rag')
+        record['generation_attempts'].append(dict(attempt=attempt, provider=raw.get('provider'),
+            duration_ms=raw['duration_ms'], status=raw['status'], usage=dict(raw.get('usage', {})),
+            diagnostics=dict(raw.get('diagnostics', {}))))
         duration += raw['duration_ms']; requests += raw.get('request_count', 0)
         for k, value in raw.get('usage', {}).items():
             total_usage[k] = total_usage.get(k, 0) + value

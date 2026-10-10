@@ -1,0 +1,10 @@
+<h3>История ручных экспериментов</h3>
+{% if rows %}
+<form hx-get="/ui/llm-experiments/compare" hx-target="#experiment-result" class="experiment-fields">
+{% for name in ['run_a','run_b'] %}<label>{{'Run A' if name=='run_a' else 'Run B'}}<select name="{{name}}">{% for row in rows if row.finished %}<option value="{{row.id}}">{{row.id[:8]}} · {{row.question}}</option>{% endfor %}</select></label>{% endfor %}
+<button type="submit">Сравнить</button></form>
+<div class="local-table-scroll local-experiments"><table><thead><tr>{% for label in ['№','Question','Model','Temperature','Context','Max tokens','Prompt','Generation ms','Grounding','Citations','Repairs','Status',''] %}<th>{{label}}</th>{% endfor %}</tr></thead><tbody>
+{% for row in rows %}{% set p=row.variant.profile %}{% set m=row.variant.metrics %}<tr>
+<td>{{rows|length-loop.index0}}</td><td>{{row.question}}</td><td>{{p.model}}</td><td>{{p.temperature}}</td><td>{{p.context_window}}</td><td>{{p.max_output_tokens}}</td><td>{{p.prompt_version}}</td><td>{{m.generation_ms if m.generation_ms is not none else '—'}}</td><td>{{row.variant.run.grounding_label or '—'}}</td><td>{{m.citations_count}}</td><td>{{m.repair_count}}</td><td>{{row.status}}</td><td><button type="button" data-experiment-view="{{row.id}}">Открыть</button></td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="empty">Ручных экспериментов ещё нет. Задайте параметры и запустите тест.</p>{% endif %}

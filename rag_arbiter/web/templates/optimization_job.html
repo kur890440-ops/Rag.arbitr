@@ -1,0 +1,4 @@
+﻿<div id="optimization-job" {% if job.status in ['QUEUED','RUNNING'] %}hx-get="/ui/llm-optimization/benchmark" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %} role="status">
+{% if job.status != 'IDLE' %}<p>Benchmark: <strong>{{job.status}}</strong> · {{job.completed}} / {{job.total}}</p>{% endif %}
+{% if job.get('error') %}<p class="rag-error">Не удалось завершить локальный benchmark. Проверьте доступность исходной модели и reranker в Diagnostics. Сохранённые результаты доступны.</p>{% endif %}
+</div>

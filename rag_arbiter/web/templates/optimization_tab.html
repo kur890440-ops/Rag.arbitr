@@ -1,0 +1,31 @@
+﻿<h2>LLM Optimization · анализ судебного акта</h2>
+<form id="manual-experiment-form">
+<div class="experiment-fields">
+<label>Model · exact tag
+{% if models %}<select name="model">{% for model in models %}<option {% if model==profile.model %}selected{% endif %}>{{model}}</option>{% endfor %}</select>
+{% else %}<input name="model" value="{{profile.model}}" maxlength="200" required><small>Список Ollama недоступен: введите точный tag вручную.</small>{% endif %}</label>
+<label>Temperature<input name="temperature" type="number" min="0" max="2" step="any" value="{{profile.temperature}}" required></label>
+<label>Context window / num_ctx<input name="context_window" type="number" min="4096" max="32768" value="{{profile.context_window}}" required></label>
+<label>Max tokens / num_predict<input name="max_output_tokens" type="number" min="128" max="8192" value="{{profile.max_output_tokens}}" required></label>
+<label>Prompt version<select name="prompt_version">{% for prompt in prompts %}<option {% if prompt==profile.prompt_version %}selected{% endif %}>{{prompt}}</option>{% endfor %}</select></label>
+<label>Seed<input name="seed" type="number" min="-2147483648" max="2147483647" value="{{profile.seed}}" required></label>
+</div>
+<label>Судебный документ · canonical normalized version<select name="document_version" required><option value="">Выберите судебный акт</option>{% for doc in documents %}<option value="{{doc.version}}">{{doc.file_name}} · {{doc.page_count}} стр. · {{doc.version[:12]}}</option>{% endfor %}</select></label>
+<input type="hidden" name="document_sha256">
+<p class="muted">Задача: семь разделов анализа полного текста документа. Baseline — прежний prompt и текущие параметры Q4_K_M; optimized — day29-judicial-v1 и выбранные параметры. Сравнивайте один и тот же текст.</p>
+<details><summary>Полный нормализованный текст · вход модели</summary><p id="judicial-document-info"></p><pre id="judicial-document-text" class="direct-text"></pre></details>
+<button type="submit" disabled>Запустить тест</button>
+<p id="experiment-error" class="rag-error" role="alert"></p>
+</form>
+<div class="direct-toolbar">
+<button type="button" data-direct-selection="all">Все</button>
+<button type="button" data-direct-selection="recent">Последние 3</button>
+<button type="button" data-direct-selection="clear">Очистить выбор</button>
+</div>
+<div id="direct-columns" class="direct-columns" aria-live="polite"></div>
+<details><summary>Архив старых запусков</summary>
+<button class="secondary" hx-get="/ui/llm-optimization/legacy" hx-target="#optimization-legacy">legacy_rag</button>
+<div id="optimization-legacy"></div>
+<button class="secondary" hx-get="/ui/local-llm-legacy" hx-target="#old-direct-columns">Архив свободных direct-тестов (включая Q4/Q8)</button><div id="old-direct-columns" class="direct-columns"></div>
+<button class="secondary" hx-get="/ui/llm-optimization/archive" hx-target="#optimization-archive">Benchmark archive</button>
+<div id="optimization-archive"></div></details>

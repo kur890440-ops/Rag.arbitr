@@ -1,0 +1,3 @@
+﻿<p class="muted">legacy_rag · сохранённые результаты прежней лаборатории</p>
+{% for row in rows %}<p>{{row.id[:8]}} · {{row.question}} <button hx-get="/ui/llm-experiments/{{row.id}}" hx-target="#legacy-result">Открыть</button></p>{% else %}<p>Архив пуст</p>{% endfor %}
+<div id="legacy-result"></div>

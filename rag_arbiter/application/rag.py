@@ -1,5 +1,6 @@
 """Day 22 orchestration reuses Day 21 embeddings, retriever and vector store."""
 import copy
+from contextlib import nullcontext
 import json
 import os
 import time
@@ -92,9 +93,12 @@ class RAGContextBuilder:
     def build(self,hits,budget):
         hits=[h.as_hit() if isinstance(h,ContextCandidate) else h for h in hits]
         text='';sources=[];ids=set();hashes=set()
+        self.diagnostics={'budget_excluded':[],'duplicate_excluded':[]}
         for hit in hits:
             content_hash=hit.get('content_hash') or digest(hit['text'])
-            if hit['chunk_id'] in ids or content_hash in hashes:continue
+            if hit['chunk_id'] in ids or content_hash in hashes:
+                self.diagnostics['duplicate_excluded'].append(hit['chunk_id'])
+                continue
             ids.add(hit['chunk_id']);hashes.add(content_hash)
             reference=f'S{len(sources)+1}'
             source={**hit,'reference':reference}
@@ -102,7 +106,9 @@ class RAGContextBuilder:
                                'section':hit.get('section'), 'pages':[hit['page_start'],hit['page_end']]},ensure_ascii=False)
             block=f'{header}\n{hit["text"]}'
             candidate=text+('\n\n' if text else '')+block
-            if len(candidate.encode('utf-8'))>budget:continue
+            if len(candidate.encode('utf-8'))>budget:
+                self.diagnostics['budget_excluded'].append(dict(chunk_id=hit['chunk_id'],context_ids=hit.get('anchor_chunk_ids',[hit['chunk_id']]),text_bytes=len(hit['text'].encode('utf-8'))))
+                continue
             text=candidate;sources.append(source)
         return dict(text=text,sources=sources,used_chunk_ids=list(dict.fromkeys(cid for s in sources for cid in s.get('anchor_chunk_ids',[s['chunk_id']]))),
                     token_count=len(text.encode('utf-8')),token_count_method=self.count_method,
@@ -208,8 +214,10 @@ class RAGComparisonService:
         requested_context_budget = context_token_budget
         if generation_mode != 'minimax':
             local = cfg.llm.local
-            overhead = sum(len(m['content'].encode('utf-8')) for m in
-                LLMRequest(question=question, context='', context_type='grounded_rag').messages()) + 512
+            versions = (local.prompt_version, 'day28-baseline') if generation_mode == 'compare' else (local.prompt_version,)
+            overhead = max(sum(len(m['content'].encode('utf-8')) for m in
+                LLMRequest(question=question, context='', context_type='grounded_rag').messages(prompt_version=v))
+                for v in versions) + 512
             context_token_budget = min(context_token_budget,
                 local.context_window - local.max_output_tokens - local.repair_reserve - overhead)
             if context_token_budget < 256:
@@ -289,14 +297,15 @@ class RAGComparisonService:
             progress('generating')
             r['generation_call_count']+=1
             try:
-                request=LLMRequest(question=r.get('chat_generation_question',r['question_text']),context=context,context_type=context_type)
+                request=LLMRequest(capture_diagnostics=bool(r.get('manual_experiment')),diagnostic_rag_context=r.get('context_text') if r.get('manual_experiment') else None,question=r.get('chat_generation_question',r['question_text']),context=context,context_type=context_type,
+                    prompt_version=cfg.llm.local.prompt_version if r['active_generation_provider']=='local' else 'day28-baseline')
                 if r.get('chat_input_budget'):
                     def fits():return len((BASE_SYSTEM+request.user_content()).encode('utf-8'))+512<=r['chat_input_budget']
                     if not fits():
                         request.question=r['chat_generation_base'];r['chat_history_dropped']=True
                     if not fits():return LLMResult(model=cfg.llm.model,error={'code':'CHAT_CONTEXT_BUDGET_EXCEEDED'}).model_dump()
                 from .diagnostic_trace import record
-                record('generation_request', system=BASE_SYSTEM, user=request.user_content(),
+                record('generation_request', system=request.messages()[0]['content'], prompt_version=request.prompt_version, user=request.user_content(),
                        question=request.question, context_type=request.context_type)
                 result=provider.generate(request).model_dump()
                 record('generation_result', result=result)
@@ -344,6 +353,7 @@ class RAGComparisonService:
                 self.put(r)
                 return self.get(key)
         started=time.perf_counter();pipeline=None;hits=[];error=None;candidates=[];ranked_hits=[]
+        r['retrieval_started']=True
         progress('retrieving')
         try:
             index=r['index_snapshot']
@@ -391,13 +401,14 @@ class RAGComparisonService:
                                 c.filter_reason=None if c.accepted else 'BELOW_RERANK_THRESHOLD'
                                 trace.append(c.model_dump(exclude={'text','metadata'}))
                                 if c.accepted:ranked_hits.append({**originals[c.chunk_id],'rerank_score':c.rerank_score,'rerank_rank':c.rerank_rank})
+                            r['rerank_output_count']=len(reranked)
                             r['reranker_status']=reranker.status() if hasattr(reranker,'status') else {'status':'READY'}
                             if not ranked_hits:error='NO_RELEVANT_CONTEXT'
                         else:
                             trace.extend(dict(chunk_id=h['chunk_id'],document_id=h['document_id'],file_title=h.get('file_name',''),section=h.get('section',''),
                                 page_start=h['page_start'],page_end=h['page_end'],retrieval_rank=h['rank'],retrieval_score=h['score'],
                                 rerank_rank=None,rerank_score=None,accepted=True,filter_reason=None) for h in cleaned)
-                        r.update(candidate_trace=trace,candidates_after_rerank=len(ranked_hits))
+                        r.update(candidate_trace=trace,candidates_after_rerank=len(ranked_hits),candidates_after_threshold=len(ranked_hits))
                         candidates,processing=processor.build(ranked_hits,precleaned=True)
                         if policy:candidates=policy.guard(candidates,'final_context')
                         r.update({k:v for k,v in processing.items() if k not in ('candidates_after_dedup','dedup_diagnostics')})
@@ -415,8 +426,11 @@ class RAGComparisonService:
         r['retrieval_source_metrics']=source_metrics(hits,r['expected_sources'],r.get('candidate_top_n',r['top_k']))
         r['source_metrics']=source_metrics(hits if r['rag_pipeline_mode']=='BASELINE' else ranked_hits,r['expected_sources'],r.get('candidate_top_n',r['top_k']))
         budget=r.get('context_token_budget',cfg.llm.context_budget)
-        selected=ContextSelector().select(candidates,r.get('max_context_sources',r['top_k']),budget,RAGContextBuilder(),cfg.context_diversity_penalty)
-        context=RAGContextBuilder().build(selected,budget)
+        selector=ContextSelector()
+        selected=selector.select(candidates,r.get('max_context_sources',r['top_k']),budget,RAGContextBuilder(),cfg.context_diversity_penalty)
+        builder=RAGContextBuilder()
+        context=builder.build(selected,budget)
+        r['context_selection_diagnostics']=dict(selection=selector.diagnostics,final_builder=builder.diagnostics)
         r.update(contexts_used=context['used_count'],context_document_ids=sorted({s['document_id'] for s in context['sources']}),
             final_source_ids=[s['source_id'] for s in context['sources']],
             context_candidate_metadata_json=[c.model_dump(exclude={'anchor','context_text'}) for c in candidates])
@@ -463,11 +477,15 @@ class RAGComparisonService:
                         r['active_generation_provider'] = name
                         branch = {'sources': json.loads(snapshot)['sources']}
                         tick = time.perf_counter()
-                        result = grounded_generation(branch,context['text'],generate,CitationBuilder(store),
-                            self.rerankers[provider_key],cfg.llm.claim_support_threshold,progress=progress,
-                            repair_context_limit=len(context['text'].encode('utf-8'))+cfg.llm.local.repair_reserve if mode!='minimax' else None)
+                        session = selected_provider.generation_session() if name == 'local' and hasattr(selected_provider, 'generation_session') else nullcontext()
+                        with session:
+                            result = grounded_generation(branch,context['text'],generate,CitationBuilder(store),
+                                self.rerankers[provider_key],cfg.llm.claim_support_threshold,progress=progress,
+                                repair_context_limit=len(context['text'].encode('utf-8'))+cfg.llm.local.repair_reserve if mode!='minimax' else None)
+                        if name == 'local' and getattr(selected_provider, 'cleanup_error', None):
+                            branch['cleanup_error'] = selected_provider.cleanup_error
                         branch_ms = (time.perf_counter() - tick) * 1000
-                        fields = ('grounding_status','grounding_result','grounding_diagnostics','claims_json',
+                        fields = ('cleanup_error','generation_attempts','grounding_status','grounding_result','grounding_diagnostics','claims_json',
                                   'citations_json','repair_used','refusal_reason','claim_support_threshold',
                                   'grounding_version','answer_rendering','claims_total','claims_supported','claims_unsupported','structured_output_valid')
                         details = {k: branch[k] for k in fields if k in branch}
@@ -479,8 +497,9 @@ class RAGComparisonService:
                             source_ids=[s['reference'] for s in context['sources']],
                             context_size=context['token_count'],context_budget=budget,
                             prompt_size=sum(len(m['content'].encode('utf-8')) for m in LLMRequest(
-                                question=r.get('chat_generation_question',r['question_text']),context=context['text'],context_type='grounded_rag').messages()),
-                            prompt_version=r['prompt_version'],claims_count=len(branch.get('claims_json', [])),
+                                question=r.get('chat_generation_question',r['question_text']),context=context['text'],context_type='grounded_rag',
+                                prompt_version=cfg.llm.local.prompt_version if name=='local' else 'day28-baseline').messages()),
+                            prompt_version=cfg.llm.local.prompt_version if name=='local' else 'day28-baseline',claims_count=len(branch.get('claims_json', [])),
                             citations_count=len(branch.get('citations_json', [])),
                             repair_count=int(branch.get('repair_used',False)),error=result['error'],**details))
                         # The historical fields stay compatible with existing readers.

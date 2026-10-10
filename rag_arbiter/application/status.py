@@ -40,7 +40,7 @@ class SystemStatusService:
         if result['llm']['status']=='READY':
             try:
                 with sqlite3.connect(f"file:{self.config.sqlite_path.resolve().as_posix()}?mode=ro",uri=True) as db:
-                    row=db.execute("SELECT json_extract(data,'$.no_rag_result.status'),json_extract(data,'$.rag_result.status') FROM rag_comparison_runs ORDER BY rowid DESC LIMIT 1").fetchone()
+                    row=db.execute("SELECT json_extract(data,'$.no_rag_result.status'),json_extract(data,'$.rag_result.status') FROM rag_comparison_runs WHERE COALESCE(json_extract(data,'$.manual_experiment'),0)=0 ORDER BY rowid DESC LIMIT 1").fetchone()
                     if row and 'ERROR' in row:result['llm']['status']='ERROR'
             except Exception:
                 pass

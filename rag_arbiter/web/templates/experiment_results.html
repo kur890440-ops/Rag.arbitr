@@ -1,0 +1,24 @@
+{% if views|length==2 %}<h3>Run A vs Run B</h3>{% if fair %}<p class="generation-status pass">FAIR · один вопрос и одинаковый immutable RAG context</p>{% else %}<p class="rag-error">RAG-контекст отличается — сравнение параметров не является чистым.</p>{% endif %}{% endif %}
+<div class="generation-cards">
+{% for view in views %}{% set v=view.variant %}{% set m=v.metrics %}
+<article class="generation-card"><h3>{{view.id[:8]}} · {{view.status}}</h3><p>{{view.question}}</p>
+<details open><summary>1. Generation parameters</summary><dl class="local-profile">
+{% for key,label in [('model','Model / tag'),('temperature','Temperature'),('context_window','Context window'),('max_output_tokens','Max tokens'),('prompt_version','Prompt version'),('seed','Seed')] %}<dt>{{label}}</dt><dd data-parameter="{{key}}">{{v.profile.get(key,'—')}}</dd>{% endfor %}
+<dt>Quantization</dt><dd>{{v.quantization or '—'}}</dd></dl></details>
+{% set shared_context_follower = fair is defined and fair and not loop.first %}{% include 'experiment_diagnostics.html' %}
+<h4>6. Generated answer</h4>
+<div class="answer-text answer-markdown">{{(v.run.answer or 'Ответ не получен')|answer_markdown}}</div>
+<details open><summary>7. Grounding / citations / repairs</summary><dl class="local-profile">
+{% for key,label in [('claims_count','Claims'),('citations_count','Citations'),('repair_count','Repairs')] %}<dt>{{label}}</dt><dd data-metric="{{key}}">{{m[key] if m[key] is not none else '—'}}</dd>{% endfor %}
+<dt>Grounding</dt><dd>{{v.run.grounding_label or '—'}} · {{v.run.grounding_status}}</dd><dt>Status / Error</dt><dd>{{v.run.status}}{% if v.run.error %} · {{v.run.error.get('code')}}{% endif %}</dd></dl>
+{% if v.run.error %}<p class="rag-error">{{v.run.error_message}}</p>{% endif %}
+{% for citation in v.run.citations %}<blockquote>{{citation.quote}} [{{citation.source_id}}]</blockquote>{% endfor %}</details>
+<details><summary>8. Performance / RAM / VRAM</summary><dl class="local-profile">
+{% for key,label in [('generation_ms','Generation time'),('total_ms','Total time'),('output_tokens','Output tokens · все попытки'),('ram_mib','RAM peak · процесс приложения + Ollama'),('vram_mib','VRAM peak · всё устройство')] %}
+{% if key not in ['ram_mib','vram_mib'] or m[key] is not none %}<dt>{{label}}</dt><dd data-metric="{{key}}">{% if m[key] is none %}—{% elif key.endswith('_ms') %}{{'%.3f'|format(m[key]/1000)}} s{% elif key.endswith('_mib') %}{{'%.1f'|format(m[key])}} MiB{% else %}{{m[key]}}{% endif %}</dd>{% endif %}{% endfor %}</dl></details>
+{% if view.snapshot and view.finished and not legacy_readonly %}<button type="button" data-experiment-reuse="{{view.id}}">Повторить с тем же контекстом</button>{% endif %}
+</article>{% endfor %}</div>
+{% for view in views %}{% if view.snapshot and (loop.first or not fair) %}{% set s=view.snapshot %}
+<details open class="generation-shared" data-experiment-context><summary>RAG context{% if fair %} · общий{% endif %}</summary><dl class="local-profile">
+<dt>Retrieval run ID</dt><dd>{{s.retrieval_run_id}}</dd><dt>Context snapshot ID</dt><dd>{{s.context_snapshot_id}}</dd><dt>SHA-256</dt><dd>{{s.integrity_sha256}}</dd><dt>Context IDs</dt><dd>{{s.context_ids|join(', ')}}</dd><dt>Final contexts count</dt><dd>{{s.sources|length}}</dd><dt>Context size</dt><dd>{{s.context_size}} UTF-8 bytes</dd></dl></details>{% endif %}{% endfor %}
+{% if deltas is defined %}<details><summary>Разница A → B</summary><dl class="local-profile">{% for key,label in [('generation_ms','Generation'),('repair_count','Repairs'),('citations_count','Citations'),('output_tokens','Output tokens')] %}{% set d=deltas[key] %}<dt>{{label}}</dt><dd>{{d.before if d.before is not none else '—'}} → {{d.after if d.after is not none else '—'}}{% if key.endswith('_ms') %} ms{% endif %}{% if d.percent is not none %} ({{'%+.1f'|format(d.percent)}}%){% endif %}</dd>{% endfor %}</dl></details>{% endif %}
