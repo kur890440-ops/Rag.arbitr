@@ -45,7 +45,7 @@ class SemanticRetriever:
                 logging.getLogger(__name__).error('RETRIEVAL_POLICY_VIOLATION stage=canonical_candidate chunk_id=%s',chunk['chunk_id'])
                 continue
             results.append({**point.payload, "rank": rank, "score": point.score, "text": chunk["text"]})
-            results[-1].update({k:chunk.get(k, '') for k in ('source','title')})
+            results[-1].update({k:chunk.get(k, '') for k in ('source','title','locator_kind','source_block_ids')})
             results[-1].update(corpus_id=index.get('corpus_id'),chunking_run_id=versions[chunk['chunk_id']])
             if chunk.get("recognition_ids"):
                 results[-1]["provenance"] = self.store.trace_chunk(chunk["chunk_id"])

@@ -69,7 +69,12 @@ class RetrievalPolicy(BaseModel):
     corpus_document_ids: list[str]=Field(default_factory=list)
     eligible_document_ids: list[str]=Field(default_factory=list)
 
+    source_scope: str = 'ALL_DOCUMENTS'
+    source_id: str | None = None
+    source_document_ids: list[str] | None = None
+
     def matches(self,document_id):
+        if self.source_document_ids is not None and document_id not in self.source_document_ids:return False
         if document_id not in self.corpus_document_ids:return False
         meta=self.document_metadata.get(document_id,{})
         kind=meta.get('document_type') if meta.get('classification_status')=='CONFIRMED' else 'UNKNOWN'
@@ -107,9 +112,10 @@ class RetrievalPolicy(BaseModel):
 
 
 class RetrievalPolicyBuilder:
-    def build(self,state,scope,corpus_id,metadata,selected_document_id=None):
+    def build(self,state,scope,corpus_id,metadata,selected_document_id=None,source_scope='ALL_DOCUMENTS',source_id=None,source_document_ids=None):
         policy=RetrievalPolicy(scope=scope,corpus_id=corpus_id,task_state_version=state.version,
-            document_metadata=metadata,corpus_document_ids=sorted(metadata))
+            document_metadata=metadata,corpus_document_ids=sorted(metadata),
+            source_scope=source_scope,source_id=source_id,source_document_ids=source_document_ids)
         for item in state.constraints_json:
             if not item.active:continue
             predicates=legacy_predicates(item)

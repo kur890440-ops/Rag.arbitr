@@ -90,10 +90,10 @@ class CandidateProcessor:
                 if bid not in block_ids:block_ids.append(bid)
             if chunk.get('recognition_ids'):
                 trace=self.store.trace_chunk(chunk['chunk_id'])
-                pages.extend(dict(recognition_id=s['page']['recognition_id'],page_number=s['page']['page_number']) for s in trace['sources'])
+                pages.extend(dict(recognition_id=s['page']['recognition_id'],page_number=s['page']['page_number']) for s in trace['sources'] if s['page']['page_number'])
         if blocks:
             block_ids=[b['block_id'] for b in blocks]
-            pages=[dict(recognition_id=b['recognition_id'],page_number=b['page_number']) for b in blocks if b.get('recognition_id')]
+            pages=[dict(recognition_id=b['recognition_id'],page_number=b['page_number']) for b in blocks if b.get('recognition_id') and b['page_number']]
         unique={ (p['page_number'],p['recognition_id']):p for p in pages}
         starts=[b['page_number'] for b in blocks] if blocks else [c['page_start'] for c in chunks]
         ends=[b['page_number'] for b in blocks] if blocks else [c['page_end'] for c in chunks]

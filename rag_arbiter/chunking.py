@@ -43,7 +43,7 @@ def make_chunks(doc, strategy, ranges, tokenizer, settings):
         blocks = [b for a, z, b in spans if a < end and z > start]
         value = text[start:end]
         chunks.append(Chunk(chunk_id=digest([doc.document_id, doc.cache_identity, strategy, "1", settings, start, end, value]),
-            document_id=doc.document_id, strategy=strategy, chunk_index=i, text=value,
+            document_id=doc.document_id, locator_kind=doc.locator_kind, strategy=strategy, chunk_index=i, text=value,
             source="uploaded document" if "corpora" in doc.source_path or "uploads" in doc.source_path else "local file",
             file_name=doc.file_name, title=doc.title or doc.file_name,
             token_count=tokenizer.count(value), content_hash=digest(value),

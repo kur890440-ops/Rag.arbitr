@@ -1,0 +1,16 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Каталог документов · rag.арбитр</title><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/catalog.css"><script src="/static/htmx.min.js" defer></script><script src="/static/catalog.js" defer></script></head><body class="catalog-page">
+<header class="app-header"><a class="brand" href="/">rag.<b>арбитр</b></a><span>КАТАЛОГ ДОКУМЕНТОВ</span></header>
+<nav class="catalog-nav" aria-label="Разделы приложения"><a href="/#sources">Источники документов</a><a href="/catalog" aria-current="page">Каталог документов</a><a href="/#overview">Обзор</a><a href="/chat" data-resume-chat>Чат</a><a href="/#retrieval">Поиск</a><a href="/#evaluation">Evaluation</a></nav>
+<form id="catalog-filters" hx-get="/ui/catalog" hx-target="#catalog-results" hx-swap="innerHTML">
+<label>Область<select name="scope"><option value="ALL_DOCUMENTS">Все документы</option><option value="NETWORK">Сетевые источники</option><option value="MANUAL">Загруженные вручную</option></select></label>
+<label>Источник<select name="source_id"><option value="">Все источники</option>{% for s in sources %}<option value="{{s.id}}">{{s.name}}</option>{% endfor %}</select></label>
+<label>Ручной корпус<select name="run_id"><option value="">Все ручные корпуса</option>{% for run in runs if run.status not in ['RUNNING','QUEUED'] %}<option value="{{run.run_id}}">{{run.created_at[:19]}} · {{run.status}} · {{run.run_id[:8]}}</option>{% endfor %}</select></label>
+<label>Поиск по имени<input type="search" name="q" maxlength="200" placeholder="Часть имени файла"></label>
+<label>Формат<select name="format"><option value="">Все</option><option>PDF</option><option>DOC</option><option>DOCX</option><option>PNG</option><option>JPG</option><option>JPEG</option><option>WEBP</option></select></label>
+<label>Статус<select name="status"><option value="">Все</option>{% for status in ['DISCOVERED','QUEUED','PROCESSING','INDEXED','FAILED','NEW','MODIFIED','UNCHANGED','MISSING'] %}<option>{{status}}</option>{% endfor %}</select></label>
+<label>Строк<select name="page_size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select></label><input type="hidden" name="offset" value="0"><input type="hidden" name="folder" value=""><button type="submit">Найти</button>
+</form>
+<div id="catalog-error" role="alert" hidden></div>
+<main class="catalog-layout"><aside class="panel catalog-tree"><h2>Папки</h2><button type="button" class="secondary" data-catalog-folder="">Все папки</button><p class="muted">По обнаруженным файлам. Раскрытие загружает только следующий уровень.</p><div id="catalog-tree-root"></div></aside><section id="catalog-results" aria-live="polite">Загрузка каталога…</section></main>
+<dialog id="catalog-viewer"><button type="button" id="catalog-close-viewer" class="secondary">Закрыть</button><div id="catalog-viewer-body"></div></dialog>
+</body></html>

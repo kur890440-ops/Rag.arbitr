@@ -95,8 +95,20 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
         app.state.direct_experiments = DirectExperimentService(app.state.runs)
         from ..application.chat import ChatSessionService
         app.state.chat = ChatSessionService(app.state.runs,app.state.rag)
-        yield
-        await run_in_threadpool(app.state.runs.close)
+        from ..network.sync import SyncService
+        import asyncio
+        app.state.network = SyncService(app.state.runs)
+        network_schedule = asyncio.create_task(app.state.network.schedule())
+        try:
+            yield
+        finally:
+            app.state.network.close()
+            network_schedule.cancel()
+            try:
+                await network_schedule
+            except asyncio.CancelledError:
+                pass
+            await run_in_threadpool(app.state.runs.close)
 
     app = FastAPI(title="rag.арбитр · Day 25", lifespan=lifespan, docs_url=None, redoc_url=None)
     request_limit = config.max_upload_request_size
@@ -155,6 +167,10 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
 
     from .chat import register_chat
     register_chat(app,render)
+    from .catalog import register_catalog
+    register_catalog(app,render)
+    from .sources import register_sources
+    register_sources(app,render)
     from .optimization import register_optimization
     register_optimization(app,render)
 

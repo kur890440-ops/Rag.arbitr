@@ -5,7 +5,7 @@ from uuid import uuid4
 from PIL import Image
 from ..documents import file_hash, now, digest
 
-TYPES = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+TYPES = {".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
 def safe_filename(name):
@@ -14,7 +14,7 @@ def safe_filename(name):
     if name.split(".")[0].upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1,10)), *(f"LPT{i}" for i in range(1,10))}:
         raise ValueError("Недопустимое имя файла Windows")
     if Path(name).suffix.lower() not in TYPES:
-        raise ValueError("Допустимы только PDF, PNG, JPG, JPEG, WEBP")
+        raise ValueError("Допустимы только PDF, DOC, DOCX, PNG, JPG, JPEG, WEBP")
     return name
 
 
@@ -48,7 +48,15 @@ class UploadService:
                     output.write(part)
             if not size:
                 raise ValueError("Пустой файл")
-            if extension == ".pdf":
+            if extension == ".doc":
+                from ..doc_converter import validate_doc
+                validate_doc(path)
+                pages = 0
+            elif extension == ".docx":
+                from ..docx_adapter import validate_docx
+                validate_docx(path)
+                pages = 0
+            elif extension == ".pdf":
                 import pypdfium2 as pdfium
                 with path.open("rb") as f:
                     if not f.read(1024).lstrip().startswith(b"%PDF-"):

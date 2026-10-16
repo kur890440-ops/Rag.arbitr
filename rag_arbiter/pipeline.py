@@ -29,7 +29,7 @@ class Pipeline:
         self.store.close()
 
     def paths(self):
-        return sorted((p for p in self.config.corpus_path.rglob("*") if p.suffix.lower() in {".pdf", ".png", ".jpg", ".jpeg", ".webp"}), key=lambda p: str(p).lower())
+        return sorted((p for p in self.config.corpus_path.rglob("*") if p.suffix.lower() in {".pdf", ".doc", ".docx", ".png", ".jpg", ".jpeg", ".webp"}), key=lambda p: str(p).lower())
 
     def read_snapshot(self):
         if not self.snapshot_path.exists():

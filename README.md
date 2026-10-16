@@ -344,3 +344,313 @@ Day29 diagnostics: в каждом новом manual run доступны счё
 ### Текущая задача Day29: анализ судебного акта
 
 LLM Optimization теперь получает полный текст выбранного canonical normalized документа и выполняет прямой структурированный анализ по семи разделам. В сравнении фиксируются одинаковый текст/SHA-256 и задача; доступны ручные оценки восьми критериев качества, параметры и метрики. Старые свободные Q4/Q8 эксперименты сохранены в отдельном архиве. Актуальная архитектура: [L1_LOCAL_GENERATION_PROVIDER.md](L1_LOCAL_GENERATION_PROVIDER.md); заменённые решения Day29: [L2_DAY29_DECISIONS.md](L2_DAY29_DECISIONS.md). Оба документа помечены `@NO_COMPRESS`.
+
+## Day 31 — сетевые источники через MCP
+
+@PROJECT:rag.арбитр
+@L3:DAY31_NETWORK_MCP_SYNC
+@PRESERVE
+
+Реализована вкладка **Источники документов**: `http://127.0.0.1:8765/sources`.
+Исходное задание сохранено без изменений в `DAY31_TASK.txt`.
+
+### Подключение и запуск
+
+В локальном `config.toml` администратор задаёт точные разрешённые корни. UI
+позволяет выбрать только эти значения; сам UI не расширяет allowlist.
+Например, TOML literal strings сохраняют обратные слеши:
+
+```toml
+[network_sources]
+enabled = false
+allowed_roots = ['\\server\share\folder', 'Z:\Documents']
+scan_interval = 300
+max_scan_depth = 32
+max_files_per_scan = 10000
+max_file_size = 104857600
+max_concurrent_ingestions = 1
+stability_seconds = 1.0
+stability_retries = 2
+```
+
+В поставленной локальной конфигурации allowlist пуст, автоматическое расписание
+выключено. Не подставляйте пример вместо реально разрешённого пути.
+`enabled` управляет автоматическим расписанием; ручной scan доступен независимо
+от него. Флаг отдельного источника управляет его участием в расписании.
+Используются права пользователя ОС, включая UNC и уже смонтированные диски;
+SMB-клиент и отдельные credentials не добавлены.
+
+Запуск Web прежний: `.\.venv\Scripts\python.exe -m rag_arbiter web`.
+Зависимость `mcp==1.30.0` закреплена в pyproject.toml и requirements.lock.
+Выбран официальный Python SDK v1, `FastMCP` + `ClientSession`, transport stdio:
+https://py.sdk.modelcontextprotocol.io/v1/ . Сетевой каталог обслуживается
+локальным subprocess, открывающим файлы средствами ОС; HTTP MCP endpoint не нужен.
+
+### Архитектура и гарантии
+
+- `network/connector.py` предоставляет только list/metadata/read. MCP tools:
+  `list_sources`, `list_directory`, `scan_source`, `get_file_metadata`,
+  `read_file_chunk`. Чтение — максимум 256 КиБ бинарных данных на ответ,
+  discovery — максимум 100 записей. Файл целиком не помещается в MCP JSON.
+- `network/sync.py` сравнивает состояния и создаёт immutable local version.
+  Точная точка входа: `RunService.create(run_type='index', background=False)`
+  и `RunService.execute` внутри существующего worker → `Pipeline.day21`
+  без evaluation → `Pipeline.ingest` → `Ingestor.ingest` → существующие
+  recognition/cache, chunking, embeddings и Qdrant. Новых processors нет.
+- Сохраняется одна SQLite: `network_sources`, `network_files`, `network_scans`,
+  `network_provenance` используют существующий JSON repository MetadataStore.
+  Связь document_id с source_id/path/hash/run/time хранится в provenance;
+  существующий реестр документов показывает источник и относительный путь.
+- Ключ файла: digest(source_id, OS-normalized relative path). Fingerprint:
+  size + mtime_ns, при изменении metadata вычисляется SHA-256 по скачанным
+  порциям. При совпавшем hash успешная версия повторно не обрабатывается.
+  При полностью совпавших metadata содержимое повторно не читается: изменение
+  с намеренным сохранением размера и mtime этим режимом не обнаруживается.
+- До чтения сравниваются два наблюдения metadata с интервалом; во время чтения
+  и после него проверяется fingerprint. Нестабильный файл получает DEFERRED,
+  выполняются ограниченные повторы, затем он остаётся для следующего scan.
+- SQLite unique partial index запрещает два активных scan одного источника,
+  включая разные процессы. Используются существующие single-worker executor,
+  cancellation reporter и межпроцессная operation lock. Concurrency закреплена
+  на 1 в соответствии с текущим RunService/Qdrant. Таймер Web lifespan только
+  подаёт задания в эту очередь; отдельного scheduler/executor нет.
+- После restart scan умершего процесса получает INTERRUPTED. Следующий scan
+  повторяет незавершённую версию через штатный recognition page cache.
+  PARTIAL/FAILED повторяются при последующем scan; SUCCESS с тем же fingerprint
+  не вызывает ingestion. Состояния discovery и ingestion хранятся раздельно.
+- Каждая версия файла получает отдельный corpus path, document_id и snapshot
+  штатной модели версий. В новом snapshot нет chunks предыдущей версии.
+  Старые snapshots остаются историческими; MISSING ничего не удаляет из
+  canonical storage или Qdrant. Для вопроса по версии откройте её run.
+- Одинаковое содержимое из разных источников сохраняет отдельный provenance
+  и штатную identity по path+hash; существующие recognition/embedding caches
+  используются без новой глобальной дедупликации документов.
+- Корень проверяется по конфигурации, relative path — на traversal/absolute
+  path/ADS. Symlink и Windows reparse points, включая junction, запрещены.
+  Перед чтением Windows проверяется final path открытого file handle.
+- Список файлов UI постраничный (100), история — последние 20 с API pagination,
+  дерево загружает дочерние папки по раскрытию и показывает количество файлов
+  и каталогов текущей страницы. Обход ограничивает все посещённые записи,
+  включая служебные файлы, а не только распознанные документы.
+- Недоступный root, ошибки папок, depth/file limits делают scan неполным;
+  MISSING применяется только после полного успешного перечисления. Ошибка
+  отдельного файла не мешает обработке остальных. Сообщения сохраняют коды
+  ACCESS_DENIED / PATH_NOT_FOUND / NETWORK_UNAVAILABLE / FILE_UNSTABLE /
+  UNSUPPORTED_FORMAT / FILE_TOO_LARGE / READ_ERROR / INGESTION_FAILED /
+  SCAN_CANCELLED, дополнительно SCAN_LIMIT / DEPTH_LIMIT.
+
+Форматы соответствуют реальному ingestion: PDF, PNG, JPG/JPEG, WEBP.
+DOCX обнаруживается с `UNSUPPORTED_FORMAT`: текущий pipeline не имеет DOCX
+parser/rendering. Поддержку DOCX нельзя считать реализованной через Day31.
+Recognition providers, embeddings, reranker, retrieval policy, grounding,
+Local/Cloud providers и семантика Chat не изменены.
+
+### Демо
+
+1. Администратор добавляет разрешённый UNC/mounted root в config.toml,
+   перезапускает Web. Открыть `/sources`, добавить источник, выбрать root.
+2. Нажать «Проверить доступ», раскрыть дерево папок.
+3. Нажать «Сканировать сейчас и обработать»: новые/изменённые версии
+   автоматически поступают в существующую очередь ingestion/indexing.
+4. В истории посмотреть discovery counts; в таблице — ingestion status;
+   ссылка на run открывает существующий progress/OCR/chunking UI.
+5. Дождаться SUCCESS; повторить scan: UNCHANGED, ingestion_queued=0.
+6. Открыть успешный run, перейти в существующий Chat и задать вопрос по
+   выбранному документу. Не считать NEW/PROCESSING/FAILED готовым для RAG.
+7. При необходимости отменить scan. Изменять файлы только в отдельно
+   разрешённой тестовой папке, не в рабочем каталоге NAS.
+
+### Проверка и ограничения окружения
+
+`tests/test_network_sources.py` использует настоящий MCP stdio server/client,
+временные папки и существующий Pipeline с тестовыми recognition/embedding
+providers и локальным Qdrant. Это проверка интеграционных границ, не реальный
+SMB E2E и не проверка качества OCR/ответов модели.
+
+Первый fixture scan: files_discovered=1, new_count=1, ingestion_completed=1.
+Повторный: unchanged_count=1, ingestion_queued=0; число вызовов recognition
+не изменилось. Проверяются MODIFIED/new file, отсутствие старой версии в новом
+snapshot, MISSING без удаления canonical document, offline без массового MISSING,
+порционный MCP read, traversal/junction, bounded discovery, unstable/retry,
+конкурентный scan, cancellation, фильтры, unsupported/oversized files,
+provenance одинаковых файлов и same-origin UI.
+
+Реальный NAS в allowlist не настроен. Live SMB scan и вопрос модели по документу
+из NAS остаются непроверенными; local fixtures не выдаются за такую проверку.
+Настройка прав ОС и allowlist необходима для работы с конкретным NAS.
+
+Результаты проверки 2026-10-15:
+
+- Полная регрессия без integration marker: **483 passed, 1 deselected**
+  (596.89 s; на этом запуске были первые 6 Day31 тестов).
+- Итоговый отдельный Day31 набор: **11 passed** (67.38 s), включая отмену
+  в очереди и внутри активного MCP task group.
+- Browser smoke: **PASS**, Edge headless, 0 JavaScript errors. Проверены
+  добавление источника, lazy tree, ACCESS_OK, SUCCESS, повторный UNCHANGED.
+- `compileall`: PASS; `git diff --check`: PASS.
+- `uv pip check`: 139 packages, all compatible.
+- Wheel собран: `data/day31-dist/rag_arbiter-0.1.0-py3-none-any.whl`;
+  наличие MCP modules и UI assets в архиве проверено.
+- Артефакты: `data/day31-tests.log`, `data/day31-regression.log`,
+  `data/day31-browser/result.json`, `data/day31-browser/sources.png`.
+  Browser smoke воспроизводится через `scripts/check_day31_ui.py`.
+
+Изменённые файлы: `rag_arbiter/network/{__init__,connector,client,server,sync}.py`,
+`rag_arbiter/config.py`, `storage.py`, `application/views.py`, `web/app.py`,
+`web/sources.py`, `web/templates/{sources,source_detail,source_tree,index,file_panel}.html`,
+`web/static/{sources.js,style.css}`, `tests/test_network_sources.py`,
+`scripts/check_day31_ui.py`, `pyproject.toml`, `requirements.lock`, `README.md`,
+`DAY31_TASK.txt`; также локальный git-ignored `config.toml`.
+
+Day31 завершён в пределах поддерживаемых ingestion форматов. Следующий день
+не начинался. Для production smoke остаётся подключить конкретный разрешённый
+NAS; DOCX требует отдельного расширения существующего ingestion.
+
+### Обновление Day31: DOCX и окно ввода пути
+
+Состояние первого этапа выше сохранено как история. Актуальная реализация:
+DOCX поддерживается через установленный Docling в существующем Ingestor;
+переходы из цитат открывают структурный фрагмент без выдуманных страниц.
+В `/sources` добавлено окно ввода UNC/mounted path. Локальный оператор может
+явно разрешить read-only root через форму; удалённый клиент не может расширить
+allowlist. Разрешения сохраняются в той же SQLite.
+
+Полные результаты, разграничение REAL SMB / LOCAL FIXTURE / MOCK / NOT RUN,
+тесты и демонстрация: [DAY31_E2E_RESULTS.md](DAY31_E2E_RESULTS.md).
+Открыть окно: http://127.0.0.1:8765/sources?connect=1 .
+
+
+### Day31: источники в Chat
+
+В `/chat` область поиска сохраняется в ChatSession: все документы выбранного корпуса вместе с сетевыми, только сетевой источник либо вручную загруженный корпус. Выбор документов открывается кнопкой в Chat; управление сканированием и сводка готовности находятся во вкладке «Источники документов». Source scope пересекается с RetrievalPolicy до Qdrant и также применяется к Exhaustive/follow-up. DOCX citations открывают canonical section/block из правильного processing run.
+
+Глобальное автосканирование включается настройкой `network_sources.enabled`; состояние и следующий запуск отображаются только для реально работающего расписания. Реальная проверка на разрешённом SMB test folder и ограничения описаны в [DAY31_CHAT_E2E_RESULTS.md](DAY31_CHAT_E2E_RESULTS.md).
+
+
+Обновление Day31: поддержка `.doc` в загрузках и сетевых источниках. Текущий конвертер — локальный LibreOffice (проверен 26.2.6), Microsoft Word для обработки больше не нужен. Исполняемый файл ищется в `RAG_LIBREOFFICE_PATH`, затем `.tools/libreoffice/program/soffice.com`, установленном LibreOffice или PATH. Каждый запуск использует временную копию DOC и отдельный профиль с запрещёнными макросами и отключённым обновлением ссылок. DOCX разбирается существующим Docling; исходные имя, хеш и происхождение сохраняются. Защищённые паролем DOC отклоняются. `doc_conversion_timeout` ограничивает время преобразования (120 секунд по умолчанию); отмена завершает только процесс конвертации и его дочерние процессы. Кеш учитывает исходный хеш, сборку LibreOffice и версию адаптера. Прежний конвертер Word зависал при ошибке запуска Office (24); пробная Aspose.Words FOSS не принята из-за изменения структуры таблиц.
+
+Проверка LibreOffice: у 14 контрольных DOC основной текст без учёта пробелов, число таблиц, строки, текст ячеек и объединения ячеек совпали с прежними результатами Word. Это проверка содержимого и структуры, не гарантия идентичной печатной вёрстки. Локальные результаты: `data/day31-doc-libreoffice-check/evidence.json` и `merged-cells.json`. Повторяемое сравнение: `scripts/check_day31_doc_conversion.py [source_id]`. Установочный пакет 26.2.6 проверен по SHA256 `f9877032fd908beb9c0ddf06df4af5c2e85f419c42e14876c4cce5aae5fb2660`; распаковка MSI `/a /qn TARGETDIR=...` размещает его в `.tools/libreoffice` без обычной системной установки.
+
+
+### Day31: ассистент `/help` в существующем Chat
+
+`/help` выводит назначение, текущую область, источники и фактические счётчики без LLM и сканирования. `/help <вопрос>` классифицируется существующим типизированным `AnswerModeRouter`: `DOCUMENT_CONTENT` продолжает обычный Chat → RetrievalPolicy → Point/Exhaustive → grounding; `ARCHIVE_STATUS` читает реестр через `ArchiveStatusProvider`. Примеры: `/help Какие обязанности предусмотрены договором?`, `/help Сравни sample.pdf и other.pdf.`, `/help Какие документы обнаружены при последнем scan?`, `/help Какие файлы ещё не обработаны?`.
+
+Область — выбранный ручной корпус вместе с сетевыми источниками, только ручной корпус, все сетевые источники либо один источник. Явно названные файлы дополнительно пересекаются с этой областью; неоднозначные или отсутствующие имена требуют уточнения. Сводка архива не изменяет память задачи и не становится доказательством для следующего содержательного ответа. Каталог показывает фактическую готовность и ошибки; `INDEXED` требует подтверждённого активного индекса. Известные папки выводятся по зарегистрированным файлам, пустые папки не угадываются. Расписание остаётся в существующем SyncService; `/help` не запускает scan.
+
+Проверки и ограничения: [DAY31_DOCUMENT_ASSISTANT_RESULTS.md](DAY31_DOCUMENT_ASSISTANT_RESULTS.md).
+
+
+### Day31: каталог документов и компактный Chat (предыдущий этап; заменён интерфейсом анализа ниже)
+
+Каталог: http://127.0.0.1:8765/catalog . Общая навигация связывает источники, каталог, обзор, Chat, поиск и Evaluation. Источники управляют подключением и сканированием; поиск сохраняет существующие RAG experiments.
+
+Каталог читает существующий реестр: ручные корпуса и сетевые файлы, имя/источник/путь/формат/размер/дату, состояния обнаружения, обработки и индексации. Фильтры: область, источник, ручной корпус, имя, формат, статус и папка; страницы по 10/25/50/100 строк. Дерево загружает следующий уровень при раскрытии, по зарегистрированным файлам, без обращения к SMB; пустые и ещё не обнаруженные папки не отображаются. Отсутствующие метаданные обозначены «—». Фильтры и страница сохраняются в URL и sessionStorage, раскрытые папки — отдельно для каждой области.
+
+«Открыть» использует существующий просмотрщик страниц PDF и структурных блоков Word. «Обсудить в Chat» доступно только для индексированного документа: создаётся новая ChatSession с document_id и соответствующим source scope. Ограничение пересекается с действующей RetrievalPolicy перед Point/Exhaustive и сохраняется для follow-up и /help; исчезнувший активный индекс не расширяет область автоматически. Другие сессии не меняются. Явное изменение области или снятие ограничения документа сбрасывает working context и версионирует scope существующим способом.
+
+В Chat остаются компактный выбор области, история слева, диалог по центру, сворачиваемая память справа и поле сообщения снизу. У истории, диалога и памяти отдельная прокрутка; на узком экране боковые панели открываются кнопками. Последняя сессия восстанавливается при возврате из каталога. Старый endpoint discovery сохранён для совместимости, но Chat больше его не опрашивает и не содержит таблицу документов.
+
+Проверки каталога: `tests/test_catalog.py`; браузерный сценарий источники → каталог → Chat: `.venv/Scripts/python.exe scripts/check_day31_ui.py` (изолированная локальная папка, настоящий MCP, тестовый inference). Проверка `/help`: `scripts/check_day31_assistant_ui.py --source <source_id>`.
+
+Проверка 15.10.2026: полный suite — 514 passed, 1 skipped; после исправления совместимости со старыми manifest-записями — 10 целевых тестов passed. Edge: источники/сканирование на изолированной папке, PDF/DOCX viewer, каталог, document scope, сохранение состояния, /help и переход в поиск — PASS. Компоновка Chat проверена на 1440×900, 1366×768 и 390×844.
+
+
+### Day31: интерфейс анализа документов
+
+Основной экран — `/chat`: история слева, сообщения и цитаты в центре, сворачиваемая память справа. Над диалогом остаются область анализа и кнопка «Выбрать документы». Catalog исключён из основной навигации; прежний `/catalog` перенаправляет в Chat. Старые API каталога, просмотрщики и реестр сохранены, поисковые эксперименты не менялись.
+
+Вкладка Sources показывает подключение, обнаруженные и индексированные документы, обработку, очередь, ошибки, последний/следующий scan и ручной запуск. Папки, таблица обработки и журнал раскрываются только по запросу. «Обсудить документ» создаёт отдельную сессию с явным ограничением на документ.
+
+Окно выбора использует существующие CatalogService и реестр: название, источник, формат, известное количество страниц/блоков и подтверждённая готовность. Поиск по названию находится только внутри окна, страницы содержат 25 записей, выбор сохраняется между страницами. «Выбрать все доступные» означает все готовые документы текущей области, независимо от страницы и текстового фильтра. «Снять выбор» очищает черновик; «Применить» требует хотя бы один документ, а «Сбросить» в Chat явно возвращает исходную область.
+
+`ChatSession.selected_document_ids` хранится в существующей SQLite JSON-записи; старый одиночный document_id остаётся совместимым. Изменение выбора использует существующий endpoint source, проверку scope_version, запрет изменения во время ответа и сброс working context. Условия задачи сохраняются; сведения предыдущих ответов проходят существующую revalidation. Выбор применяется только к текущему чату. Новый чат следует прежнему правилу: выбранный ручной корпус плюс доступные сетевые документы.
+
+Готовность подтверждается через ResultsService.chat_snapshot: активные index_runs, документ, provenance и зарегистрированные chunks. Выбранные IDs пересекаются с доступными документами до RetrievalPolicy и candidate_top_n. Point, Exhaustive, follow-up и /help соблюдают это ограничение; потеря индекса не вызывает расширения области. Ручные документы выбираются в рамках корпуса текущего чата; другие ручные корпуса доступны при создании нового чата с нужным корпусом. MCP, ingestion, chunking, embeddings и grounding не изменялись в этом рефакторинге.
+
+Сценарий `scripts/check_day31_analysis_ui.py` создаёт три локальных синтетических DOCX, использует настоящий MCP, embeddings и настроенную генерацию, открывает Sources и Chat в Edge, выбирает два документа, проверяет точные цитаты и retrieval scope, затем сбрасывает выбор. Это проверка реальной генерации на локальных тестовых документах, а не новый SMB E2E; результаты записываются в `data/day31-e2e/analysis-real-*/evidence.json`.
+
+
+Проверка рефакторинга 16.10.2026: полный suite — **515 passed, 1 skipped** (опциональный тест с загрузкой OCR-моделей требует `RAG_INTEGRATION=1`). Целевые тесты каталога/области/ассистента — **12 passed**. Браузерный сценарий подключения, scan, повторного scan, выбора документов и сохранения области — **PASS** после устранения повторной загрузки Sources и преждевременной остановки опроса статуса. Основной UI проверен на 1440×900, 1366×768 и 390×844.
+
+Реальная генерация: `data/day31-e2e/analysis-real-7fd22ae2ce/evidence.json`, **PASS**, `GROUNDED`, две точные цитаты; кандидаты ограничены двумя выбранными DOCX, после сброса доступны все три тестовых документа. Первый вопрос с именем договора вызвал уточнение существующего resolver; сохранён отдельно в `evidence-first-question.json`. Успешная проверка использовала самостоятельный вопрос об условиях без неразрешённой ссылки. Это подтверждает реальную генерацию на синтетических документах; новый SMB E2E не выполнялся.
+
+Основные изменения: `application/chat.py`, `chat_models.py`, `archive_status.py`; `web/chat.py`, `catalog.py`, `sources.py`; шаблоны `chat.html`, `document_selector.html`, `sources.html`, `source_detail.html`, `index.html`; `static/chat.js`, `chat.css`, `sources.js`; `tests/test_chat_sources.py`, `test_catalog.py`; браузерные сценарии `scripts/check_day31_analysis_ui.py`, `check_day31_ui.py`, `check_day31_assistant_ui.py`.
+
+
+### Day31: UX диалогового Chat
+
+Обновлённый `/chat` использует одну центральную прокрутку и закреплённый composer. Постоянные боковые колонки убраны: история слева и память справа открываются как modal drawers, закрыты по умолчанию, закрываются кнопкой или Escape. Фокус ограничивается открытой панелью; после перехода к другому чату панель закрыта. Область анализа и существующий выбор документов остаются в компактном header.
+
+Сообщения пользователя компактны и выровнены вправо, ответы ассистента выводятся без карточной рамки. Markdown renderer сохранён (HTML модели и внешние изображения отключены), поддерживаются списки и таблицы; текст ограничен комфортной шириной. Цитаты и переходы к PDF-страницам/DOCX-блокам остаются в раскрытии «Источники», режим/grounding/timings/retrieval/repair и trace — в раскрытии «Диагностика». Экспорт диагностики сохранён. Модель и операции Task Memory, источник/выбранные document IDs и правила retrieval не менялись.
+
+Enter отправляет сообщение, Shift+Enter вставляет строку; повторное нажатие во время запроса блокируется. Во время обработки можно набрать следующий черновик. При ошибке отправки текст сохраняется; принятый сервером текст очищается только если пользователь ещё не изменил его. Состояние выполнения видно у composer и в строке прогресса.
+
+Постраничное представление читает последние 40 сообщений, более ранние подгружаются по sequence-cursor. У существующего `ChatSessionService.load` добавлены необязательные параметры bounded read для UI; вызовы анализа без этих параметров читают прежнюю полную историю. Изменение ограничено чтением представления, не orchestration. Опрос активного ответа запрашивает только сообщения после последнего sequence и добавляет DOM-узлы; уже отображённые сообщения и открытые цитаты не перерисовываются. Если пользователь внизу, новые сообщения видны автоматически; иначе сохраняется позиция и появляется «К новым сообщениям». Подгрузка ранних сообщений сохраняет видимый участок. При возврате к чату восстанавливается сохранённый якорь в загруженной странице; если якорь старше последних 40 сообщений, открывается конец чата.
+
+Проверки: `tests/test_chat_ux.py` (постраничное чтение, delta, неизменная полная история для анализа), `scripts/check_day31_chat_ux.py` (реальный Edge на синтетическом диалоге из 120 сообщений, длинном ответе, таблице и сохранённых точных цитатах). Для browser fixture используется локальная база предыдущего synthetic E2E `analysis-real-7fd22ae2ce`; новой генерации этот UX-сценарий не запускает. Результат и изображения: `data/day31-browser/chat-ux/`. Проверены desktop 1440×900/1366×768, tablet 768×1024, mobile 390×844, память/выбор/история/источники/диагностика/отправка/ошибки/прокрутка и переходы Sources/Search.
+
+
+Результат UX-проверки 16.10.2026: **516 passed, 1 skipped** в полном suite; **46 passed** в целевом прогоне Chat и **1 passed** в отдельном тесте UI pagination. Пропущен опциональный OCR integration test с загрузкой моделей. Финальный browser smoke — **PASS**, включая название нового чата после первого сообщения. Выбор документов также оформлен правым drawer с прежними checkbox/search/pagination/apply. Основной сервер `/chat` возвращает HTTP 200 с новым layout.
+
+Файлы UX-этапа: `rag_arbiter/web/templates/chat.html`, `chat_thread.html`, новый `chat_memory.html`; `rag_arbiter/web/static/chat.css`, `chat.js`; UI-маршруты `rag_arbiter/web/chat.py`, необязательное постраничное чтение `rag_arbiter/application/chat.py`; `tests/test_chat_ux.py`, `scripts/check_day31_chat_ux.py`, адаптация открытия истории в `scripts/check_day31_ui.py`. Sources/Search, RAG orchestration, Task Memory и retrieval semantics не менялись. Известных блокирующих UI-проблем в проверенных размерах нет; восстановление очень старого якоря ограничено загруженной страницей, как описано выше.
+
+### Day31: automatic ingestion toast
+
+Chat polls `/api/chat/knowledge-updates` every 2 seconds, including while idle.
+Sync completion writes one `knowledge_base_updates` event per operation to the
+existing `processing_run_events` journal. `first_indexed_scan` records the first
+successful ingestion/indexing of a source file; existing `last_indexed` history
+prevents legacy files and modified versions from being counted as new. Failed
+files count only when their first successful retry completes. Partial operations
+can notify about their successful additions only.
+
+The transient top-right toast hides after 5 seconds. Each page starts at the
+current journal cursor (no historical notifications on reload); reconnect on an
+open page retains its cursor. Separate operations are queued for display. The
+endpoint uses the application's existing middleware and checks the source root
+allowlist and current OS directory access. It returns counts, not document paths.
+No per-user ACL system was added. No RAG or Chat orchestration behavior changed.
+
+Verification: `tests/test_ingest_notifications.py` covers aggregation, unchanged
+scan, modified file, failure/retry, event deduplication and revoked root access.
+`scripts/check_day31_ingest_toast.py` checks real Edge with synthetic local files,
+real sync/index orchestration and injected OCR/embeddings: automatic display,
+position, 5-second hide, reconnect/reload, unchanged scan and Chat `/help`.
+Evidence: `data/day31-browser/ingest-toast/67c41fbd2c104ddcb499fa201bdcaad7/`.
+
+Проверка на основном сервере после замены конвертера: scan `d48feccb27ce4d9297253e10ef3a13be` завершён, 12 новых документов успешно обработаны, 16 не изменились, ошибок 0. В настоящем Edge автоматически показан toast «Добавлено 12 новых документов». Свидетельства: `data/day31-doc-libreoffice-check/live-ingestion.json`, `real-toast.png`. Автотесты: 14 DOC/DOCX и 15 network/notifications/chat-sources прошли. Следующий scan завершился без новой индексации и ошибок.
+
+
+### Day31: contextual document discovery
+
+Для Chat с конкретным `source_id` и непустым выбранным набором документов существующий
+двухсекундный polling показывает компактное предложение под областью анализа.
+`SyncService` записывает обнаружение в прежний `processing_run_events` до ingestion;
+проекция читает Source/Document Registry, права корневой папки и активные индексы
+через `ResultsService.chat_snapshot`. Открытие Chat не запускает сканирование.
+
+Статусы: NEW, PROCESSING, INDEXED, FAILED. INDEXED требует активного canonical index
+и подтверждения, что успешная обработка относится к текущему discovery event.
+Успех прежней версии файла не разрешает добавление новой необработанной версии.
+Кнопка добавляет только готовые document IDs, показанные в момент подтверждения.
+Существующий `select_source` атомарно сохраняет объединённый выбор и решение;
+Task Memory сохраняется, Point RAG/Exhaustive получают тот же обновлённый scope.
+Параллельная смена scope отклоняет устаревшее подтверждение. Другие сессии не меняются.
+
+`chat_discovery_decisions` хранит предъявление/решение отдельно для каждой сессии;
+идентичность события включает source/file и fingerprint размера/mtime, а решение —
+также document ID. Предъявление не скрывает предложение. Подтверждение или «Не сейчас»
+закрывает показанную партию, включая ещё не готовые файлы: они не добавляются автоматически
+и не предлагаются повторно для того же fingerprint. Новые события остаются доступны.
+Перезагрузка и неизменный scan не возвращают уже рассмотренную партию.
+После смены scope событие, ранее предъявленное inline, не дублируется общим toast.
+Для других источников общий toast сохранён; динамические области ALL_DOCUMENTS/весь
+источник не получают предложение включить уже доступные документы.
+
+Новые явные изменения выбора задают `discovery_since`; для старых сессий используется
+время создания. Миграция регистрирует ранее найденные файлы с исходным `discovered_at`,
+без запуска MCP. Названия выводятся через `textContent`; список и панель имеют
+ограниченную высоту и собственную прокрутку. Новые вкладки и боковые панели не добавлены.
+
+Проверки и ограничения реального E2E: `DAY31_CONTEXTUAL_DOCUMENT_DISCOVERY_RESULTS.md`.

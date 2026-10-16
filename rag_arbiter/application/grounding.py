@@ -42,6 +42,7 @@ class AnswerContract(BaseModel):
 
 
 class Citation(BaseModel):
+    locator_kind: str = "page"
     citation_id: str
     claim_id: str
     source_id: str
@@ -152,7 +153,7 @@ class CitationBuilder:
                     continue
                 chunk = next(c for c in chunks if bid in c.get('source_block_ids', []))
                 citation = Citation(citation_id='', claim_id=claim.claim_id, source_id=source['reference'],
-                    document_id=block['document_id'], chunk_id=chunk['chunk_id'],
+                    document_id=block['document_id'], locator_kind=block.get('locator_kind','page'), chunk_id=chunk['chunk_id'],
                     anchor_chunk_ids=source.get('anchor_chunk_ids', [source['chunk_id']]),
                     file_title=source.get('file_name', ''), section=block.get('section') or source.get('section') or '',
                     page_start=block['page_number'], page_end=block['page_number'], quote=fragment,
@@ -178,7 +179,7 @@ class CitationBuilder:
             chunk=next(c for c in chunks if left_id in c.get('source_block_ids',[]))
             parts=[dict(block_id=bid,recognition_id=block.get('recognition_id'),page_number=block['page_number'],start=m.start(),end=m.end())
                 for bid,block,m in ((left_id,left,tail),(right_id,right,head))]
-            c=Citation(citation_id='',claim_id=claim.claim_id,source_id=source['reference'],document_id=left['document_id'],
+            c=Citation(citation_id='',claim_id=claim.claim_id,source_id=source['reference'],document_id=left['document_id'],locator_kind=left.get('locator_kind','page'),
                 chunk_id=chunk['chunk_id'],anchor_chunk_ids=source.get('anchor_chunk_ids',[source['chunk_id']]),
                 file_title=source.get('file_name',''),section=source.get('section') or '',
                 page_start=left['page_number'],page_end=right['page_number'],quote=match.group(),

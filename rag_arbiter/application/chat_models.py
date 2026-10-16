@@ -21,7 +21,14 @@ class ChatSession(Typed):
     created_at: str = Field(default_factory=now)
     updated_at: str = Field(default_factory=now)
     last_message_at: str | None = None
-    processing_run_id: str
+    processing_run_id: str | None = None
+    source_scope: Literal['ALL_DOCUMENTS', 'NETWORK', 'MANUAL'] = 'ALL_DOCUMENTS'
+    source_id: str | None = None
+    scope_version: int = 0
+    document_id: str | None = None
+    document_name: str | None = None
+    selected_document_ids: list[str] = Field(default_factory=list)
+    discovery_since: str | None = None
 
 
 class ChatMessage(Typed):

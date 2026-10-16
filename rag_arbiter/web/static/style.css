@@ -41,3 +41,12 @@
 .app-layout:has(#llm-optimization:not([hidden])) #workspace,
 .app-layout:has(#llm-optimization:not([hidden])) main>footer,
 body:has(#llm-optimization:not([hidden])) #toggle-files {display:none!important}
+
+/* Day31 source navigation uses the existing dark application header. */
+.source-header a { color: #f0f8f5; }
+
+#source-dialog { max-width: 720px; width: 90%; border: 1px solid #ccd9d3; border-radius: 12px; padding: 24px; }
+#source-dialog::backdrop { background: #102b2680; }
+#source-dialog form { display: grid; gap: 12px; }
+#source-dialog input[name="root_path"] { width: 100%; }
+.discovery-controls,.discovery-pagination{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0}.discovery-controls label:first-child{flex:1;min-width:220px}.discovery-controls label{display:grid;gap:4px}.discovery-controls small{flex-basis:100%}.discovery-pagination button{width:auto}.discovery-pagination span{font-size:12px}

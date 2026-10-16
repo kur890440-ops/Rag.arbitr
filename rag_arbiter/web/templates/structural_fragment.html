@@ -1,0 +1,4 @@
+﻿<section class="panel"><h2>{{document.file_name}}</h2><p>Документ · структурный фрагмент, без фиксированной пагинации</p><p>{{block.section}}</p><p>Document ID: {{document.document_id}} · Block ID: {{block.block_id}}</p>
+{% for origin in provenance %}<p>Источник: {{origin.source_id}} · {{origin.relative_path}}</p>{% endfor %}
+{% if block.block_type == 'table' %}<div class="answer-markdown">{{block.text|answer_markdown}}</div>{% else %}<pre>{{block.text}}</pre>{% endif %}
+<p><a href="/?run_id={{run_id}}&document_id={{document.document_id}}">Открыть документ в реестре</a></p></section>

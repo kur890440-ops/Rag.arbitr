@@ -47,6 +47,9 @@ class Page(BaseModel):
 
 
 class Block(BaseModel):
+    locator_kind: str = "page"
+    source_ref: str = ""
+    table_data: dict | None = None
     block_id: str
     document_id: str
     page_number: int
@@ -60,6 +63,7 @@ class Block(BaseModel):
 
 
 class Document(BaseModel):
+    locator_kind: str = "page"
     retrieval_metadata: dict = Field(default_factory=dict)
     document_id: str
     source_path: str
@@ -82,6 +86,7 @@ class Document(BaseModel):
 
 
 class Chunk(BaseModel):
+    locator_kind: str = "page"
     chunk_id: str
     document_id: str
     strategy: str

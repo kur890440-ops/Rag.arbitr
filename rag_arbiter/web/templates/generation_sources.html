@@ -8,17 +8,17 @@
 </dl>
 {% if result.get('comparison_context_reduced') %}<p class="muted">Общий бюджет ограничен Local: {{result.requested_context_budget}} → {{result.context_token_budget}} bytes.</p>{% endif %}
 <details class="generation-source-list"><summary>Источники / цитаты</summary>
-{% for source in comparison.shared.sources %}<details class="rag-source" data-shared-source="{{source.reference}}"><summary>[{{source.reference}}] {{source.file_name}} · стр. {{source.page_start}}–{{source.page_end}}</summary>
+{% for source in comparison.shared.sources %}<details class="rag-source" data-shared-source="{{source.reference}}"><summary>[{{source.reference}}] {{source.file_name}} · {% if source.page_start %}стр. {{source.page_start}}–{{source.page_end}}{% else %}структурный фрагмент{% endif %}</summary>
 <p class="muted">{{source.section or 'Без раздела'}} · chunk {{source.chunk_id}}</p><pre>{{source.text}}</pre>
 {% for page in source.get('source_pages',[]) %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{page.recognition_id}}">Показать страницу {{page.page_number}}</button>{% endfor %}
 </details>{% else %}<p class="muted">{{'Контекст ещё не получен.' if comparison.status in ['QUEUED','RUNNING'] else 'Подходящие источники не найдены.'}}</p>{% endfor %}
 {% for key,label in [('local','Local'),('cloud','MiniMax')] %}{% set run=comparison[key] %}
 {% if run.citations %}<h4>Цитаты ответа {{label}}</h4>{% endif %}
 {% for citation in run.citations %}<details class="grounded-citation" id="generation-citation-{{comparison.comparison_run_id}}-{{run.provider}}-{{loop.index}}">
-<summary>{{citation.claim_id}} · [{{citation.source_id}}] {{citation.file_title}} · стр. {{citation.page_start}}–{{citation.page_end}}</summary>
+<summary>{{citation.claim_id}} · [{{citation.source_id}}] {{citation.file_title}} · {% if citation.page_start %}стр. {{citation.page_start}}–{{citation.page_end}}{% else %}структурный фрагмент{% endif %}</summary>
 <blockquote>{{citation.quote}}</blockquote><p class="muted">{{'Точная цитата' if citation.exact_match else 'Проверка цитаты не пройдена'}} · Claim support: {{'%.3f'|format(citation.support_score)}}</p>
-{% if citation.locator.get('recognition_id') %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{citation.locator.recognition_id}}">Показать страницу {{citation.page_start}}</button>{% endif %}
-{% for part in citation.parts if part.page_number != citation.page_start %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{part.recognition_id}}">Продолжение · стр. {{part.page_number}}</button>{% endfor %}
+{% if citation.locator.get('recognition_id') and citation.page_start %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{citation.locator.recognition_id}}">Показать страницу {{citation.page_start}}</button>{% endif %}
+{% if not citation.page_start %}<a href="/ui/runs/{{result.processing_run_id}}/documents/{{citation.document_id}}/blocks/{{citation.locator.block_id}}">Открыть фрагмент DOCX</a>{% endif %}{% for part in citation.parts if part.page_number != citation.page_start %}<button class="source-page secondary" data-run="{{result.processing_run_id}}" data-page="{{part.recognition_id}}">Продолжение · стр. {{part.page_number}}</button>{% endfor %}
 </details>{% endfor %}{% endfor %}
 </details>
 </section>

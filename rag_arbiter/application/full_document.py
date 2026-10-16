@@ -40,10 +40,14 @@ class FullDocumentContextBuilder:
         if any(p.get('recognition_id') not in known for p in pages):
             result['status']='NORMALIZED_DOCUMENT_UNAVAILABLE';return result
         blocks=sorted(doc['blocks'],key=lambda b:(b['page_number'],b['reading_order'],b['block_id']))
-        if any(b['page_number'] not in range(1,doc['page_count']+1) for b in blocks):
+        structural = doc.get('locator_kind') == 'structure'
+        if not structural and any(b['page_number'] not in range(1,doc['page_count']+1) for b in blocks):
             result['status']='NORMALIZED_DOCUMENT_INCOMPLETE';return result
         text=f"{doc['file_name']}\n"+'\n\n'.join(
             f"[PAGE {p['page_number']}]\n"+'\n'.join(b['text'] for b in blocks if b['page_number']==p['page_number']) for p in pages)
+        if structural:
+            text = doc['file_name']+'\n'+'\n\n'.join(b['text'] for b in blocks)
+            result.update(locator_kind='structure', source_block_ids=[b['block_id'] for b in blocks])
         request=LLMRequest(question=question,context=text,context_type='full_document')
         system_tokens=len(BASE_SYSTEM.encode('utf-8'))
         input_tokens=system_tokens+len(request.user_content().encode('utf-8'))+32

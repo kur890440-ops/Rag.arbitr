@@ -51,7 +51,7 @@ def synthesis_request(question,merged,coverage,limitations,quote_limit=500,packe
     findings=[]
     for m in merged:
         item={k:v for k,v in m.items() if k not in ('evidence','documents_total')}
-        item['representative_evidence']=[dict(document=aliases[e['document_id']],page=e['page'],
+        item['representative_evidence']=[dict(document=aliases[e['document_id']],page=e['page'] or None,
             quote=e['evidence_text'][:quote_limit],quote_truncated=len(e['evidence_text'])>quote_limit) for e in m['evidence'][:1]]
         findings.append(item)
     data=dict(coverage=coverage,documents={aliases[doc]:title for doc,title in documents},findings=findings,limitations=limitations)
@@ -78,7 +78,7 @@ Use relevant=false and findings=[] if nothing is relevant. evidence_ref MUST be 
             for start in range(0,len(u.text),width):
                 ref=f'Q{len(quotes)+1}';text=u.text[start:start+width]
                 quotes[(f'U{i}',ref)]=text;spans.append(dict(ref=ref,text=text))
-            sources.append(dict(unit_id=f'U{i}',page=u.page,excerpts=spans))
+            sources.append(dict(unit_id=f'U{i}',page=u.page or None,excerpts=spans))
         request=LLMRequest(question=prompt+'\nQUESTION:\n'+batcher.question+'\nUNITS:\n'+canonical(sources))
         if estimate(request)+batcher.config.max_output_tokens<=batcher.config.full_document_context_budget:return request,quotes
     return None,{}
@@ -176,7 +176,7 @@ class ExhaustiveContextBatcher:
     def request(self,units):
         # Short local aliases avoid transcription errors in opaque hashes.
         # Canonical document/block IDs remain exclusively application-owned.
-        content=[dict(unit_id=f'U{i+1}',file_title=u.file_title,page=u.page,section=u.section,text=u.text) for i,u in enumerate(units)]
+        content=[dict(unit_id=f'U{i+1}',file_title=u.file_title,page=u.page or None,section=u.section,text=u.text) for i,u in enumerate(units)]
         return LLMRequest(question=MAP_PROMPT+'\nQUESTION:\n'+self.question+'\nUNITS:\n'+canonical(content))
 
     def fits(self,units):
@@ -193,10 +193,13 @@ class ExhaustiveContextBatcher:
                 if not pageblocks:pageblocks=[dict(block_id='empty-page-'+str(page['page_number']),text='',section='')]
                 for b in pageblocks:
                     units.append(SourceUnit(unit_id=hash_value([doc['document_id'],b['block_id'],0]),document_id=doc['document_id'],file_title=doc['file_name'],page=page['page_number'],section=b.get('section',''),block_id=b['block_id'],text=b['text']))
+            if doc.get('locator_kind') == 'structure':
+                for b in blocks:
+                    units.append(SourceUnit(unit_id=hash_value([doc['document_id'],b['block_id'],0]),document_id=doc['document_id'],file_title=doc['file_name'],page=0,section=b.get('section',''),block_id=b['block_id'],text=b['text']))
             current=[]
             def emit():
                 text=canonical([u.model_dump() for u in current]);digest=hash_value(text)
-                batches.append(AnalysisBatch(batch_id=digest,document_ids=[doc['document_id']],file_titles=[doc['file_name']],page_ranges=[dict(document_id=doc['document_id'],start=min(u.page for u in current),end=max(u.page for u in current))],section_references=sorted({u.section for u in current if u.section}),normalized_text=text,content_hash=digest,estimated_tokens=estimate(self.request(current)),normalization_version=hash_value([doc.get('cache_identity'),doc.get('parser_version')]),units=list(current)))
+                batches.append(AnalysisBatch(batch_id=digest,document_ids=[doc['document_id']],file_titles=[doc['file_name']],page_ranges=[dict(document_id=doc['document_id'],start=min(u.page for u in current),end=max(u.page for u in current))] if doc.get('locator_kind')!='structure' else [],section_references=sorted({u.section for u in current if u.section}),normalized_text=text,content_hash=digest,estimated_tokens=estimate(self.request(current)),normalization_version=hash_value([doc.get('cache_identity'),doc.get('parser_version')]),units=list(current)))
             for unit in units:
                 while True:
                     if self.fits(current+[unit]):current.append(unit);break
@@ -227,6 +230,7 @@ class ExhaustiveEvidenceMerger:
                 group['statements'].add(normalized(finding.statement))
                 if finding.category:group['categories'].add(normalized(finding.category))
                 ev={k:getattr(finding,k) for k in ('document_id','file_title','page','section','block_id','char_start','evidence_text')}
+                ev['locator_kind'] = 'structure' if finding.page == 0 else 'page'
                 identity=canonical([finding.document_id,finding.block_id,finding.char_start,normalized(finding.evidence_text)])
                 # Stable representative even when duplicate spellings differ.
                 previous=group['evidence'].get(identity)
@@ -241,8 +245,8 @@ class ExhaustiveEvidenceMerger:
 class ExhaustiveNoRAG:
     def __init__(self,runs,provider_factory):self.runs,self.provider_factory=runs,provider_factory
 
-    def load(self,source,document_id,policy=None):
-        entries=ResultsService(self.runs).snapshot(source).get('corpus',{}).get('documents',[])
+    def load(self,source,document_id,policy=None,snapshot=None):
+        entries=(snapshot if snapshot is not None else ResultsService(self.runs).snapshot(source)).get('corpus',{}).get('documents',[])
         entries=[e for e in entries if not document_id or e['document_id']==document_id]
         if policy is not None:
             entries=[e for e in entries if e['document_id'] in policy.eligible_document_ids and policy.matches(e['document_id'])]
@@ -250,7 +254,7 @@ class ExhaustiveNoRAG:
             if {e['document_id'] for e in entries}!=expected:raise ValueError('POLICY_SCOPE_INCOMPLETE')
         docs=[]
         for entry in entries:
-            check=FullDocumentContextBuilder(self.runs).build(source,entry['document_id'],10**15,'',0)
+            check=FullDocumentContextBuilder(self.runs).build(entry.get('processing_run_id',source),entry['document_id'],10**15,'',0)
             if check['status']!='READY':raise ValueError(check['status'])
             with self.runs.db() as store:
                 doc=store.get('normalized_documents',entry.get('recognition_version') or '') or store.get('documents',entry['document_id'])
@@ -290,7 +294,7 @@ class ExhaustiveNoRAG:
         try:
             from .retrieval_policy import RetrievalPolicy
             policy=RetrievalPolicy.model_validate(record['retrieval_policy_json']) if record.get('retrieval_policy_json') else None
-            docs=self.load(record['processing_run_id'],record['document_id'],policy) if policy is not None else self.load(record['processing_run_id'],record['document_id'])
+            docs=self.load(record['processing_run_id'],record['document_id'],policy, snapshot=record['corpus_snapshot']) if record.get('corpus_snapshot') is not None else self.load(record['processing_run_id'],record['document_id'],policy) if policy is not None else self.load(record['processing_run_id'],record['document_id'])
             if policy is not None:
                 docs=policy.guard(docs,'exhaustive_documents')
                 metrics['eligible_document_ids']=[d['document_id'] for d in docs]
@@ -342,10 +346,12 @@ class ExhaustiveNoRAG:
                         with self.runs.db() as store:store.put('exhaustive_map_cache',cachekey,result.model_dump())
                 with self.runs.db() as store:store.put('exhaustive_batch_results',rowkey,dict(result=result.model_dump(),stats=stats,cache_key=cachekey))
                 return batch,result,stats
-            results=[];successful=set();page_batches={};doc_batches={}
+            results=[];successful=set();page_batches={};doc_batches={};coverage_units={}
             for b in batches:
                 for u in b.units:
-                    page_batches.setdefault((u.document_id,u.page),set()).add(b.batch_id)
+                    coverage_units.setdefault((u.document_id,u.page if u.page else u.block_id),set()).add(b.batch_id)
+                    if u.page:
+                        page_batches.setdefault((u.document_id,u.page),set()).add(b.batch_id)
                     doc_batches.setdefault(u.document_id,set()).add(b.batch_id)
             with ThreadPoolExecutor(max_workers=cfg.exhaustive_concurrency) as pool:
                 pending=[pool.submit(extract,b) for b in batches]
@@ -355,7 +361,7 @@ class ExhaustiveNoRAG:
                     metrics['batches_completed']=len(successful)
                     metrics['pages_covered']=sum(ids<=successful for ids in page_batches.values())
                     metrics['documents_covered']=sum(ids<=successful for ids in doc_batches.values())
-                    metrics['coverage_percent']=round(100*metrics['pages_covered']/max(1,metrics['pages_total']),2)
+                    metrics['coverage_percent']=round(100*sum(ids<=successful for ids in coverage_units.values())/max(1,len(coverage_units)),2)
                     for target,source in [('minimax_requests','requests'),('input_tokens_processed','input_tokens'),('intermediate_output_tokens','output_tokens')]:metrics[target]+=stats[source]
                     metrics['cache_hits']+=int(stats['cache_hit'])
                     record['generation_call_count']+=stats['calls'];record['minimax_requests_count']+=stats['requests']

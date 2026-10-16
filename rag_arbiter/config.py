@@ -50,7 +50,21 @@ from .llm import LLMConfig
 from .reranking import RerankerConfig
 
 
+class NetworkSourcesConfig(BaseModel):
+    enabled: bool = False
+    allowed_roots: list[str] = Field(default_factory=list)
+    scan_interval: int = Field(300, ge=1)
+    max_scan_depth: int = Field(32, ge=0, le=256)
+    max_files_per_scan: int = Field(10000, ge=1, le=1000000)
+    max_file_size: int = Field(100 * 1024 * 1024, ge=1)
+    max_concurrent_ingestions: int = Field(1, ge=1, le=1)
+    stability_seconds: float = Field(1.0, ge=0, le=60)
+    stability_retries: int = Field(2, ge=0, le=5)
+
+
 class Config(BaseModel):
+    doc_conversion_timeout: float = Field(120.0, ge=5, le=600)
+    network_sources: NetworkSourcesConfig = Field(default_factory=NetworkSourcesConfig)
     max_reference_claims: int = Field(default=10,ge=1,le=10)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)

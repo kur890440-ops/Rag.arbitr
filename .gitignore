@@ -34,3 +34,9 @@ data/day25/
 
 data/day28/
 data/day29/
+# Day31 private runtime evidence and source copies.
+data/day31-e2e/
+data/day31-browser/
+data/day31-dist/
+
+data/day31-doc-*/

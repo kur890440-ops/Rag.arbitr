@@ -1,0 +1,2 @@
+﻿{% for node in tree.nodes %}<details class="catalog-folder" data-folder="{{node.path}}" data-children-url="{{node.url}}"><summary>{{node.name}}</summary><button type="button" class="secondary" data-catalog-folder="{{node.path}}">Выбрать папку</button><div class="catalog-branch"></div></details>{% else %}<small>Подпапок нет.</small>{% endfor %}
+{% if tree.more %}<button type="button" class="secondary" hx-get="{{more_url}}" hx-target="this" hx-swap="outerHTML">Следующие папки</button>{% endif %}

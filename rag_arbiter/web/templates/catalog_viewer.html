@@ -1,0 +1,1 @@
+﻿<h2>{{file.filename}}</h2>{% if links %}<label>Страница / раздел<select id="catalog-viewer-selection">{% for link in links %}<option value="{{link.url}}">{{link.label}}</option>{% endfor %}</select></label><div id="catalog-viewer-fragment" hx-get="{{links[0].url}}" hx-trigger="load">Загрузка содержимого…</div>{% else %}<p>Нормализованное содержимое ещё не готово.</p>{% endif %}

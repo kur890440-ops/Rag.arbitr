@@ -23,6 +23,88 @@ class ResultsService:
             return self.snapshot(cfg.rechunk_source_run_id)
         return {}
 
+    def chat_snapshot(self, base_run_id, network_source_id=None, source_scope="ALL_DOCUMENTS"):
+        """Compose existing active partitions; never build a second index."""
+        import copy
+        from .rechunk import partitions
+        snapshots = {}
+        def snapshot(rid):
+            if rid not in snapshots:
+                snapshots[rid] = self.snapshot(rid)
+            return snapshots[rid]
+        selected = {}
+        with self.runs.db() as store:
+            provenance = store.all('network_provenance')
+            network_ids = {p.get('document_id') for p in provenance}
+            network_files = store.all('network_files')
+            network_ids.update(row.get('document_id') for row in network_files)
+            network_runs = {row.get('run_id') for row in network_files}
+            network_runs.update(p.get('run_id') for p in provenance)
+            if source_scope!='NETWORK' and base_run_id and base_run_id not in network_runs:
+                base = snapshot(base_run_id)
+                for entry in base.get('corpus', {}).get('documents', []):
+                    if entry['document_id'] not in network_ids:
+                        selected[entry['document_id']] = (base_run_id, entry, None)
+            for row in network_files:
+                if source_scope=='MANUAL' or (network_source_id and row['source_id'] != network_source_id):
+                    continue
+                if (row.get('status') == 'MISSING' or row.get('indexing_status') != 'SUCCESS'
+                        or not row.get('active_run_id') or not row.get('document_id')):
+                    continue
+                rid, did = row['active_run_id'], row['document_id']
+                origin = next((p for p in provenance
+                    if p.get('document_id') == did and p.get('source_id') == row['source_id'] and p.get('run_id') == rid), None)
+                if not origin:
+                    continue
+                entry = next((e for e in snapshot(rid).get('corpus', {}).get('documents', []) if e['document_id'] == did), None)
+                if entry:
+                    selected[did] = (rid, entry, row['source_id'])
+            entries, parts, identities = [], [], []
+            for did, (rid, entry, source_id) in selected.items():
+                index = snapshot(rid).get('indexes', {}).get('structure') or {}
+                if index.get('status') not in ('SUCCESS', 'PARTIAL'):
+                    continue
+                doc_parts = []
+                for part in partitions(index):
+                    committed = store.get('index_runs', part['run_id'])
+                    if not committed or committed.get('status') not in ('SUCCESS', 'PARTIAL'):
+                        continue
+                    chunks = [key for key in part.get('chunk_ids', []) if
+                        (store.get('chunks', key) or {}).get('document_id') == did and key in committed.get('chunk_ids', [])]
+                    if did in part['document_ids'] and chunks:
+                        doc_parts.append({**copy.deepcopy(part), 'document_ids': [did], 'chunk_ids': chunks})
+                if not doc_parts or not store.get('documents', did):
+                    continue
+                identities.append(index)
+                parts.extend(doc_parts)
+                entries.append({**copy.deepcopy(entry), 'processing_run_id': rid, 'source_id': source_id})
+        identity = digest([(e['document_id'], e.get('recognition_version')) for e in entries])
+        index = None
+        if parts:
+            first = identities[0]
+            if any(any(i.get(k) != first.get(k) for k in ('embedding', 'dimension', 'similarity')) for i in identities):
+                raise ValueError('Индексы источников используют разные модели. Переиндексируйте документы с одной моделью.')
+            index = {**copy.deepcopy(first), 'run_id': identity, 'corpus_id': identity, 'partitions': parts,
+                'document_ids': [e['document_id'] for e in entries], 'chunk_ids': list(dict.fromkeys(k for p in parts for k in p['chunk_ids']))}
+            index['chunks'] = len(index['chunk_ids'])
+        return {'corpus': {'corpus_id': identity, 'documents': entries}, 'indexes': {'structure': index} if index else {},
+            'document_runs': {e['document_id']: e['processing_run_id'] for e in entries},
+            'document_sources': {e['document_id']: e['source_id'] for e in entries}}
+
+    def restrict_chat_snapshot(self, snapshot, allowed):
+        import copy
+        result=copy.deepcopy(snapshot)
+        allowed=set(allowed)
+        result['corpus']['documents']=[e for e in result['corpus']['documents'] if e['document_id'] in allowed]
+        for key in ('document_runs','document_sources'):
+            result[key]={d:v for d,v in result[key].items() if d in allowed}
+        for index in result['indexes'].values():
+            index['partitions']=[p for p in index['partitions'] if set(p['document_ids']) & allowed]
+            index['document_ids']=[d for d in index['document_ids'] if d in allowed]
+            index['chunk_ids']=list(dict.fromkeys(c for p in index['partitions'] for c in p['chunk_ids']))
+            index['chunks']=len(index['chunk_ids'])
+        return result
+
     def recognition_ids(self, run_id):
         run = self.runs.get(run_id)
         source = run.get('config_json', {}).get('rechunk_source_run_id')
@@ -101,10 +183,15 @@ class ResultsService:
                 errors = sum(m['status']=='FAILED' for m in pages)
                 usable = q+o
                 status = 'SUCCESS' if usable==e['page_count'] and usable else 'PARTIAL' if usable else 'FAILED' if errors else 'NOT_PROCESSED'
+                canonical = store.get('documents', did) if did else None
+                if canonical and canonical.get('locator_kind') == 'structure':
+                    status = canonical['status']
+                    usable = int(status != 'FAILED' and bool(canonical.get('blocks')))
                 if run['status'] in {'RUNNING','QUEUED'} and (run.get('current_document_id')==did or run['run_type']=='rechunk' and (not cfg.rechunk_document_id or cfg.rechunk_document_id==did)):
                     status = 'PROCESSING'
-                rows.append(dict(document_id=did, name=e['file_name'], pages=e['page_count'], q=q, o=o, errors=errors,
+                rows.append(dict(locator_kind=canonical.get('locator_kind','page') if canonical else 'page', document_id=did, name=e['file_name'], pages=e['page_count'], q=q, o=o, errors=errors,
                                  processed=bool(usable), status=status,
+                                 source_metadata=[json.loads(r[0]) for r in store.db.execute("SELECT data FROM network_provenance WHERE json_extract(data,'$.document_id')=?", (did,))],
                                  fixed=counts['fixed'].get(did), structure=counts['structure'].get(did)))
         return sorted(rows, key=lambda r:(not r['processed'], r['name'].casefold(), r['document_id']))
 
@@ -163,7 +250,7 @@ class ResultsService:
         for group in results.values():
             for hit in group["hits"]:
                 hit["source_pages"] = [{"recognition_id": s["page"]["recognition_id"], "page_number": s["page"]["page_number"]}
-                    for s in hit.get("provenance", {}).get("sources", [])]
+                    for s in hit.get("provenance", {}).get("sources", []) if s["page"]["page_number"]]
                 hit.pop("provenance", None)  # Browser receives internal IDs, never file paths.
         return results
 

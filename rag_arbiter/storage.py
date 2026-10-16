@@ -9,6 +9,7 @@ class MetadataStore:
               "evaluation_runs", "retrieval_results", "recognition_metadata", "processing_runs",
               "processing_run_errors", "uploads", "recognition_cache", "chunk_settings", "normalized_documents",
               "rag_evaluation_questions", "rag_comparison_runs", "rag_batches",
+              "chat_discovery_decisions", "network_root_grants", "network_sources", "network_files", "network_scans", "network_provenance",
               "exhaustive_batch_results", "exhaustive_map_cache", "query_rewrite_cache",
               "local_llm_experiment_runs", "chat_sessions", "chat_messages", "chat_turns", "task_states", "dialogue_working_contexts")
 
@@ -105,6 +106,13 @@ class MetadataStore:
             if not block:
                 raise ValueError("Missing source block")
             recognition = self.get("recognition_metadata", block.get("recognition_id", ""))
+            if block.get('locator_kind') == 'structure':
+                if not recognition:
+                    raise ValueError('Missing structural normalization metadata')
+                trace.append({'block_id': block_id, 'locator_kind':'structure',
+                    'page': {'page_number':0, 'recognition_id':block['recognition_id'], 'locator_kind':'structure'},
+                    'recognition':recognition, 'source_ref':block.get('source_ref')})
+                continue
             # Recognition metadata identifies the historical page even after a provider switch.
             page = self.get("document_pages", block.get("recognition_id", ""))
             if not page:

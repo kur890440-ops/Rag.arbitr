@@ -9,6 +9,8 @@ from test_exhaustive import MapLLM
 class DialogueProvider:
     def generate(self,request):
         d=json.loads('{'+request.question.split('\n{',1)[1])
+        if request.question.startswith('DAY31_ASSISTANT_INTENT'):
+            return LLMResult(model='fixture',status='SUCCESS',text=json.dumps(dict(target='DOCUMENT_CONTENT',confidence=1)))
         if request.question.startswith('DAY25_REFERENCES'):
             refs=d['context']['referents_json']
             chosen=refs if any(s in d['current'].lower() for s in ('из них','из этих','этих обязанностей','этих причин')) else []

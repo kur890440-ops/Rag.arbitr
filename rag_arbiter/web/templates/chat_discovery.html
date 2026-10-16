@@ -1,0 +1,14 @@
+{% if info %}
+<p>Источник: <strong>{{info.source.name}}</strong> · Доступ: {{info.source.connection_status or 'NOT_CHECKED'}} · Последний scan: {{info.scan.started_at if info.scan else 'не запускался'}} · Статус: <strong>{{'SUCCESS' if info.scan and info.scan.status=='COMPLETED' else info.scan.status if info.scan else 'NOT_SCANNED'}}</strong></p>
+<p>Автосканирование: {{'включено' if info.automatic else 'выключено'}} · Следующий scan: {{info.next_scan or ('после текущего сканирования' if info.automatic and info.active else 'не запланирован')}}</p>
+<p>Всего обнаружено: {{info.counts.discovered}} · Новых: {{info.counts.new}} · Изменённых: {{info.counts.modified}} · Проиндексировано: {{info.counts.indexed}} · В очереди: {{info.counts.queued}} · В обработке: {{info.counts.processing}} · Ошибок файлов: {{info.counts.failed}} · Ошибок scan: {{info.scan.error_count if info.scan else 0}}</p>
+{% if info.scan and info.scan.errors %}<p role="alert">{% for code in info.scan.errors %}{{ {'MCP_TIMEOUT':'Сетевой источник не ответил за 30 секунд. Повторите сканирование после проверки сети.','READ_ERROR':'Ошибка чтения или обмена с MCP. Причина в старой записи не сохранена; требуется диагностика запуска.','ACCESS_DENIED':'Нет доступа к источнику или запрещён переход за разрешённую папку.','PATH_NOT_FOUND':'Сетевая папка не найдена.','NETWORK_UNAVAILABLE':'Сетевой ресурс недоступен.','INGESTION_FAILED':'Обработка документа не завершена.'}.get(code,code) }} ({{code}}) {% endfor %}</p>{% endif %}
+<button type="button" id="chat-scan-source" data-source="{{info.source.id}}" {% if info.active %}disabled{% endif %}>{{'Сканирование выполняется' if info.active else 'Сканировать сейчас'}}</button> <a href="/?source={{info.source.id}}#sources">Управление источником</a>
+{% if not info.counts.indexed %}<p role="status">Документов в активном индексе пока нет. Найденные файлы участвуют в поиске только после подтверждённой индексации.</p>{% endif %}
+{% include 'discovery_pager.html' %}
+{% if not pager.total %}<p role="status">Документы не найдены. Измените запрос или область поиска.</p>{% endif %}
+<table><thead><tr><th>Имя файла</th><th>Формат</th><th>Обнаружен</th><th>Статус обработки</th><th>Статус индексации</th><th>Действие</th></tr></thead><tbody>
+{% for file in info.files %}<tr><td>{{file.filename}}<small>{{file.relative_path}}</small></td><td>{{file.format or '—'}}</td><td>{{file.status}}<small>{{file.discovered_at}}</small></td><td>{{file.ingestion_status or 'DISCOVERED'}}</td><td>{{file.availability}}{% if file.error %}<small>{{file.error}}</small>{% endif %}</td><td>{% if file.document_id and file.run_id %}<a href="/?run_id={{file.run_id}}&document_id={{file.document_id}}">Открыть документ</a>{% else %}—{% endif %}</td></tr>{% endfor %}
+</tbody></table>
+{% include 'discovery_pager.html' %}
+{% else %}<p>Выберите сетевой источник для просмотра результатов сканирования.</p>{% endif %}

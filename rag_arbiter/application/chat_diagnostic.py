@@ -151,6 +151,7 @@ class ChatDiagnosticService:
         section('QUESTION INTENT / ANSWER MODE', {'result': trace.get('question_intent_json', MISSING), 'inputs': event('DAY25_ANSWER_MODE')})
         section('RETRIEVAL POLICY', {**pick(policy, 'task_state_version scope include_filters exclude_filters date_filters semantic_constraints unsupported_constraints'),
             'stored_policy_filter': trace.get('hard_filters_json', MISSING), 'actual_qdrant_calls': event('qdrant_search')})
+        section('SOURCE SCOPE', trace.get('source_selection', {'source_scope':'ALL_DOCUMENTS','source_id':None}))
         section('ELIGIBLE DOCUMENTS', {'corpus_documents_total': len(policy['corpus_document_ids']) if 'corpus_document_ids' in policy else MISSING,
             'eligible_documents_count': len(eligible) if 'eligible_document_ids' in trace else MISSING,
             'shown_limit': 100, 'documents': [{'document_id': did, 'file_title': titles.get(did, MISSING),

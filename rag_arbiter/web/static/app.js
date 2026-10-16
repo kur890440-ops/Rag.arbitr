@@ -8,14 +8,23 @@ const $ = id => document.getElementById(id);
 let uploading = false;
 let selectedDocument = new URLSearchParams(location.search).get('document_id') || '', activeTab = 'overview';
 const collapsedGroups = {};
+function initialTab(fallback='overview') {
+  const requested=location.hash.slice(1);
+  if(requested==='local-optimization')return 'llm-optimization';
+  return ['sources','overview','recognition','chunking','retrieval','evaluation','diagnostics','llm-optimization'].includes(requested)?requested:fallback;
+}
 function setTab(name) {
   activeTab=name;
-  if(name==='llm-optimization'){
+  if(name==='sources'){
+    history.replaceState(null,'',location.pathname+location.search+'#sources');
+    window.loadSources?.();
+  } else if(name==='llm-optimization'){
     history.replaceState(null,'',location.pathname+location.search+'#llm-optimization');
     window.loadOptimization?.();
-  } else if(['#local-optimization','#llm-optimization'].includes(location.hash)){
+  } else if(['#sources','#local-optimization','#llm-optimization'].includes(location.hash)){
     history.replaceState(null,'',location.pathname+location.search);
   }
+  $('workspace').hidden=name==='sources';
   document.querySelectorAll('[data-tab-panel]').forEach(el=>el.hidden=el.dataset.tabPanel!==name);
   document.querySelectorAll('[data-tab]').forEach(el=>el.setAttribute('aria-selected',String(el.dataset.tab===name)));
 }
@@ -135,7 +144,7 @@ async function refresh() {
       if(stats[key]!==undefined){const line=document.createElement('p');line.textContent=`${label}: ${stats[key]}`;summary.append(line);}
     }
     refreshFiles();
-    if(terminal.has(run.status) && stream) {stream.close();stream=null;setTab('chunking');workspace();}
+    if(terminal.has(run.status) && stream) {stream.close();stream=null;if(activeTab!=='sources')setTab('chunking');workspace();}
   } catch(error){notice(error.message);}
 }
 function scheduleRefresh(){if(!refreshTimer) refreshTimer=setTimeout(()=>{refreshTimer=null;refresh();},180);}
@@ -149,11 +158,14 @@ async function loadRun(id){
   $('workspace').replaceChildren();
   $('recognition-summary').replaceChildren();
   if(!id) return;
-  history.replaceState(null,'',`/?run_id=${encodeURIComponent(id)}${['#local-optimization','#llm-optimization'].includes(location.hash) ? location.hash : ''}`);
+  const runUrl = new URL(location.href);
+  runUrl.pathname = '/';
+  runUrl.searchParams.set('run_id', id);
+  history.replaceState(null, '', runUrl);
   if(!$('run-select').querySelector(`option[value="${id}"]`)) {const option=new Option(`Run ${id.slice(0,8)}`,id);$('run-select').add(option);}
   $('run-select').value=id; await refresh();
   if(currentRun!==id) return;
-  setTab(['#local-optimization','#llm-optimization'].includes(location.hash)?'llm-optimization':terminal.has(latestRun?.status)?'chunking':'overview');
+  setTab(initialTab(terminal.has(latestRun?.status)?'chunking':'overview'));
   workspace();
   if(!terminal.has(latestRun?.status)){
     stream=new EventSource(`/runs/${id}/events`);
@@ -224,6 +236,6 @@ document.body.addEventListener('change',async event=>{
 document.body.addEventListener('toggle',event=>{if(event.target.matches?.('.file-group'))collapsedGroups[event.target.dataset.group]=!event.target.open;},true);
 $('file-search').addEventListener('input',filterFiles);
 $('toggle-files').addEventListener('click',()=>$('file-panel').classList.toggle('open'));
-setTab(['#local-optimization','#llm-optimization'].includes(location.hash)?'llm-optimization':'overview');
+setTab(initialTab());
 setInterval(elapsed,1000);
 if(currentRun)loadRun(currentRun);

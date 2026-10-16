@@ -1,0 +1,8 @@
+﻿<nav class="discovery-pagination" aria-label="Страницы документов">
+<span>Показаны {{pager.start}}–{{pager.end}} из {{pager.total}} · Всего в области: {{pager.all_total}}</span>
+<button type="button" class="discovery-page secondary" data-offset="0" {% if pager.page==1 %}disabled{% endif %}>Первая</button>
+<button type="button" class="discovery-page secondary" data-offset="{{[0,pager.offset-pager.size]|max}}" {% if pager.page==1 %}disabled{% endif %}>Назад</button>
+<span>Страница {{pager.page}} из {{pager.pages}}</span>
+<button type="button" class="discovery-page secondary" data-offset="{{pager.offset+pager.size}}" {% if pager.page==pager.pages %}disabled{% endif %}>Далее</button>
+<button type="button" class="discovery-page secondary" data-offset="{{(pager.pages-1)*pager.size}}" {% if pager.page==pager.pages %}disabled{% endif %}>Последняя</button>
+</nav>

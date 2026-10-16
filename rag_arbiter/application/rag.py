@@ -103,7 +103,7 @@ class RAGContextBuilder:
             reference=f'S{len(sources)+1}'
             source={**hit,'reference':reference}
             header=json.dumps({'reference':f'[{reference}]','file':hit.get('file_name'), 'title':hit.get('title'),
-                               'section':hit.get('section'), 'pages':[hit['page_start'],hit['page_end']]},ensure_ascii=False)
+                               'section':hit.get('section'), 'pages':[hit['page_start'],hit['page_end']] if hit['page_start'] else None, **({'block_ids':hit.get('source_block_ids',[]),'locator_kind':'structure'} if not hit['page_start'] else {})},ensure_ascii=False)
             block=f'{header}\n{hit["text"]}'
             candidate=text+('\n\n' if text else '')+block
             if len(candidate.encode('utf-8'))>budget:
@@ -169,12 +169,12 @@ class RAGComparisonService:
                 r['compare_result'] = CompareResult.from_record(r).model_dump(mode='json')
             else:
                 r['generation_result'] = GenerationResult.from_record(r, r.get('generation_mode', 'minimax')).model_dump(mode='json')
-        return {k:v for k,v in r.items() if k not in ('index_snapshot','config_snapshot','owner_pid','owner_started')} if public else r
+        return {k:v for k,v in r.items() if k not in ('index_snapshot','corpus_snapshot','config_snapshot','owner_pid','owner_started')} if public else r
 
     def put(self,r,table='rag_comparison_runs'):
         with self.runs.db() as store:store.put(table,r['comparison_run_id'] if table=='rag_comparison_runs' else r['batch_id'],r)
 
-    def prepare(self,run_id,question='',question_id=None,document_id=None,strategy='structure',top_k=None,chunking_run_id=None,rag_scope=RAGScope.ALL_DOCUMENTS,selected_document_id=None,candidate_top_n=None,max_context_sources=None,context_token_budget=None,minimum_candidate_score=None,rag_pipeline_mode=RAGPipelineMode.BASELINE,rerank_threshold=None,point_only=False,claim_support_threshold=None,generation_mode="minimax"):
+    def prepare(self,run_id,question='',question_id=None,document_id=None,strategy='structure',top_k=None,chunking_run_id=None,rag_scope=RAGScope.ALL_DOCUMENTS,selected_document_id=None,candidate_top_n=None,max_context_sources=None,context_token_budget=None,minimum_candidate_score=None,rag_pipeline_mode=RAGPipelineMode.BASELINE,rerank_threshold=None,point_only=False,claim_support_threshold=None,generation_mode="minimax", corpus_snapshot=None):
         if generation_mode not in ('minimax', 'local', 'compare'):
             raise ValueError('Invalid generation mode')
         if generation_mode != 'minimax':
@@ -200,7 +200,7 @@ class RAGComparisonService:
         if not isinstance(question,str) or not question.strip() or len(question)>4000:raise ValueError('Введите вопрос длиной 1–4000 символов')
         run=self.runs.get(run_id)
         if run['status'] in ('QUEUED','RUNNING'):raise ValueError('Дождитесь завершения обработки документов')
-        views=ResultsService(self.runs);snapshot=views.snapshot(run_id)
+        views=ResultsService(self.runs);snapshot=copy.deepcopy(corpus_snapshot) if corpus_snapshot is not None else views.snapshot(run_id)
         if document_id and not any(f['document_id']==document_id for f in views.files(run_id)):raise ValueError('Документ не принадлежит запуску')
         index=copy.deepcopy(snapshot.get('indexes',{}).get(strategy))
         if chunking_run_id and (not index or index['run_id']!=chunking_run_id):raise ValueError('Активная версия индекса изменилась. Обновите выбор.')
@@ -247,7 +247,7 @@ class RAGComparisonService:
             expected_answer=q['expected_answer'] if q else '',expected_sources=q['expected_sources'] if q else [],
             expected_unanswerable=q.get('expected_unanswerable',False) if q else False,
             status='QUEUED',error_json=[],created_at=now(),started_at=None,finished_at=None,
-            index_snapshot=index,config_snapshot=cfg.model_dump(mode='json'),owner_pid=os.getpid(),owner_started=psutil.Process().create_time())
+            corpus_snapshot=copy.deepcopy(corpus_snapshot),index_snapshot=index,config_snapshot=cfg.model_dump(mode='json'),owner_pid=os.getpid(),owner_started=psutil.Process().create_time())
 
     def start(self,run_id,background=True,**kwargs):
         record=self.prepare(run_id,**kwargs);self.put(record);key=record['comparison_run_id']
@@ -365,7 +365,17 @@ class RAGComparisonService:
                 with self.runs.operation_lock():
                     try:
                         pipeline=self.runs.pipeline_factory(cfg)
-                        pipeline.validate_current_corpus(ResultsService(self.runs).snapshot(r['processing_run_id']))
+                        if r.get('corpus_snapshot') is not None:
+                            for origin in set(r['corpus_snapshot']['document_runs'].values()):
+                                origin_config = Config(**self.runs.get(origin)['config_json'])
+                                previous_config = pipeline.config
+                                try:
+                                    pipeline.config = origin_config
+                                    pipeline.validate_current_corpus(ResultsService(self.runs).snapshot(origin))
+                                finally:
+                                    pipeline.config = previous_config
+                        else:
+                            pipeline.validate_current_corpus(ResultsService(self.runs).snapshot(r['processing_run_id']))
                         pipeline.resources()
                         policy=RetrievalPolicy.model_validate(r['retrieval_policy_json']) if r.get('retrieval_policy_json') else None
                         if policy:sync_payload(pipeline.vectors,index,policy.document_metadata)
@@ -374,7 +384,7 @@ class RAGComparisonService:
                         hits=SemanticRetriever(pipeline.provider,pipeline.vectors,pipeline.store).retrieve_vector(vector,index,r.get('candidate_top_n',r['top_k']),retrieval_document(r['rag_scope'],r['selected_document_id']),policy=policy)
                         r['vector_retrieval_duration_ms']=(time.perf_counter()-vector_started)*1000
                         for hit in hits:
-                            hit['source_pages']=[{'recognition_id':s['page']['recognition_id'],'page_number':s['page']['page_number']} for s in hit.get('provenance',{}).get('sources',[])]
+                            hit['source_pages']=[{'recognition_id':s['page']['recognition_id'],'page_number':s['page']['page_number']} for s in hit.get('provenance',{}).get('sources',[]) if s['page']['page_number']]
                             hit.pop('provenance',None)
                         processor=CandidateProcessor(pipeline.store,index,r['retrieval_strategy'],min(cfg.context_expansion_budget,r.get('context_token_budget',cfg.llm.context_budget)))
                         cleaned,diagnostics=processor.dedup(hits,r.get('minimum_candidate_score'))

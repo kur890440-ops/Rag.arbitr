@@ -1,0 +1,6 @@
+<div class="task-memory" data-version="{{data.task_state.version}}"><h2>Память задачи</h2><small>Версия {{data.task_state.version}} · только ваши условия</small><h3>Цель</h3><p>{{data.task_state.goal.value if data.task_state.goal else 'Не задана'}}</p>
+{% for field,label in [('constraints_json','Ограничения'),('clarifications_json','Уточнения'),('terms_json','Термины'),('open_questions_json','Открытые вопросы')] %}<h3>{{label}}</h3>
+{% for i in data.task_state[field] %}<div class="memory-item"><p>{{i.value}}</p><small>USER_EXPLICIT · {{i.source_message_id[:8]}}</small>
+{% if field=='constraints_json' %}<small>{{data.memory_execution.get(i.key,'semantic')}}</small>{% endif %}
+{% if field != 'open_questions_json' %}<button class="memory-remove secondary" data-field="{{field}}" data-key="{{i.key}}" {% if active %}disabled{% endif %}>Удалить</button>{% endif %}
+{% if field=='terms_json' %}<button class="memory-edit secondary" data-field="{{field}}" data-key="{{i.key}}" data-value="{{i.value}}" {% if active %}disabled{% endif %}>Изменить</button>{% endif %}</div>{% else %}<p class="muted">Нет</p>{% endfor %}{% endfor %}<details><summary>Контекст диалога · версия {{data.dialogue_context.version}}</summary><p>Ссылки для понимания уточнений. Новые ответы проверяются по документам заново.</p><pre>{{data.dialogue_context|tojson(indent=2)}}</pre></details></div>

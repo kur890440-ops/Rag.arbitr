@@ -56,6 +56,15 @@ class ProcessingRun(BaseModel):
 
 def safe_error(exc):
     text = str(exc).lower()
+    office_errors = {
+        'doc_conversion_timeout': 'DOC_CONVERSION_TIMEOUT: преобразование DOC не завершилось за установленное время.',
+        'doc_conversion_failed': 'DOC_CONVERSION_FAILED: LibreOffice не смог преобразовать DOC в DOCX.',
+        'doc_converter_unavailable': 'DOC_CONVERTER_UNAVAILABLE: не найден локальный LibreOffice.',
+        'doc_password_protected': 'DOC_PASSWORD_PROTECTED: документ DOC защищён паролем.',
+    }
+    for code, message in office_errors.items():
+        if code in text:
+            return message
     if "truncated" in text or "generation/context budget" in text:
         return "Ответ Qwen оборвался по лимиту токенов. Увеличьте max_generation_tokens и context_tokens в config.toml и повторите запуск. Неполный ответ сохранён для диагностики."
     if "duplicate reading order" in text:

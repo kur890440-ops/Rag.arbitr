@@ -9,6 +9,8 @@ from .progress import ConsoleReporter
 
 
 def page_count(path):
+    if path.suffix.lower() in {".doc", ".docx"}:
+        return 0
     if path.suffix.lower() != ".pdf":
         return 1
     import pypdfium2 as pdfium
@@ -73,6 +75,43 @@ class Ingestor:
             self.provider.close()
 
     def _ingest(self, paths):
+        office = [p for p in paths if p.suffix.lower() in {'.doc','.docx'}]
+        if not office:
+            return self._ingest_pages(paths)
+        raster = [p for p in paths if p.suffix.lower() not in {'.doc','.docx'}]
+        docs, stats = self._ingest_pages(raster) if raster else ([], {
+            'errors': [], 'processed_pages': 0, 'reused_pages': 0,
+            'recognition_created': 0, 'recognition_reused': 0, 'cache_hits': 0, 'cache_misses': 0,
+            'reliability': {}, 'document_stats': [], 'duration': 0,
+            'identity': {'provider':'docling_docx'}, 'provider':'docling_docx'})
+        from .docx_adapter import normalize_docx
+        for path in office:
+            self.reporter.check()
+            did = digest([str(path.resolve()), file_hash(path)])
+            self.reporter.emit('document_started','INGESTION',path.name,current_document_id=did,current_file=path.name)
+            try:
+                if path.suffix.lower()=='.doc':
+                    from .doc_converter import convert_doc
+                    converted, identity = convert_doc(path,self.config,self.reporter)
+                    doc, reused = normalize_docx(converted,self.config,self.store,self.reporter,source_path=path,conversion_identity=identity)
+                else:
+                    doc, reused = normalize_docx(path,self.config,self.store,self.reporter)
+                docs.append(doc)
+                status = 'SUCCESS'
+                stats['recognition_reused' if reused else 'recognition_created'] += 1
+                stats['cache_hits' if reused else 'cache_misses'] += 1
+            except Exception as exc:
+                status = 'FAILED'
+                stats['errors'].append(dict(document=str(path),stage='normalization',error=str(exc) if path.suffix.lower()=='.doc' and isinstance(exc,ValueError) else type(exc).__name__))
+                self.reporter.emit('document_error','NORMALIZATION','Office normalization failed',document=path.name,error=str(exc) if path.suffix.lower()=='.doc' and isinstance(exc,ValueError) else 'DOCX normalization failed')
+            stats['document_stats'].append(dict(document_id=did,name=path.name,pages_total=0,status=status,format=path.suffix.lstrip('.').upper()))
+            key = 'documents_'+status.lower()
+            stats['reliability'][key] = stats['reliability'].get(key,0)+1
+            self.reporter.emit('document_completed','NORMALIZATION',path.name,
+                processed_documents_delta=int(status=='SUCCESS'),document_stats=stats['document_stats'])
+        return docs, stats
+
+    def _ingest_pages(self, paths):
         docs, errors = [], []
         stats = {"backend": self.config.ocr_backend, "processed_pages": 0, "reused_pages": 0,
                  "recognition_created": 0, "recognition_reused": 0, "cache_hits": 0, "cache_misses": 0}

@@ -27,7 +27,7 @@
 {% if variant.quality_note %}<p>{{variant.quality_note}}</p>{% endif %}
 {% if run.error %}<p class="rag-error">{{run.error_message}} · {{run.error.get('code')}}</p>{% endif %}
 <details><summary>Проверенные цитаты · {{run.citations_count}}</summary>
-{% for citation in run.citations %}<p><strong>{{citation.claim_id}} [{{citation.source_id}}]</strong></p><blockquote>{{citation.quote}}</blockquote><p class="muted">{{citation.file_title}} · {{citation.page_start}}–{{citation.page_end}}</p>{% if citation.locator.get('recognition_id') %}<button type="button" class="source-page secondary" data-run="{{snapshot.processing_run_id}}" data-page="{{citation.locator.recognition_id}}">Страница {{citation.page_start}}</button>{% endif %}{% endfor %}
+{% for citation in run.citations %}<p><strong>{{citation.claim_id}} [{{citation.source_id}}]</strong></p><blockquote>{{citation.quote}}</blockquote><p class="muted">{{citation.file_title}} · {% if citation.page_start %}{{citation.page_start}}–{{citation.page_end}}{% else %}структурный фрагмент{% endif %}</p>{% if citation.locator.get('recognition_id') and citation.page_start %}<button type="button" class="source-page secondary" data-run="{{snapshot.processing_run_id}}" data-page="{{citation.locator.recognition_id}}">Страница {{citation.page_start}}</button>{% else %}<a href="/ui/runs/{{snapshot.processing_run_id}}/documents/{{citation.document_id}}/blocks/{{citation.locator.block_id}}">Открыть фрагмент DOCX</a>{% endif %}{% endfor %}
 </details>
 </article>{% endfor %}
 </div>
@@ -48,7 +48,7 @@
 <dt>SHA-256 snapshot</dt><dd>{{snapshot.integrity_sha256}}</dd>
 </dl>
 <p class="muted">Оба результата проверены по одному сохранённому snapshot. Retrieval, rerank и ContextBuilder при отображении не запускаются.</p>
-{% for source in snapshot.sources %}<details data-shared-source="{{source.reference}}"><summary>[{{source.reference}}] {{source.file_name}} · стр. {{source.page_start}}–{{source.page_end}}</summary><pre>{{source.text}}</pre>
+{% for source in snapshot.sources %}<details data-shared-source="{{source.reference}}"><summary>[{{source.reference}}] {{source.file_name}} · {% if source.page_start %}стр. {{source.page_start}}–{{source.page_end}}{% else %}раздел {{source.section}}{% endif %}</summary><pre>{{source.text}}</pre>
 {% for page in source.get('source_pages',[]) %}<button type="button" class="source-page secondary" data-run="{{snapshot.processing_run_id}}" data-page="{{page.recognition_id}}">Страница {{page.page_number}}</button>{% endfor %}
 </details>{% endfor %}
 </details>
