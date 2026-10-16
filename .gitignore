@@ -40,3 +40,7 @@ data/day31-browser/
 data/day31-dist/
 
 data/day31-doc-*/
+
+# Day32 local source versions and review evidence.
+data/day32-e2e/
+data/day32-browser/

@@ -205,6 +205,7 @@ class Ingestor:
                             section = recognized.text
                         block = Block(block_id=digest([doc_id, key, recognized.order, recognized.text]), document_id=doc_id,
                             page_number=p.page_number, block_type=recognized.type, text=recognized.text, reading_order=len(blocks)+len(page_blocks),
+                            table_data=next(({'rows':t.rows,'uncertain':t.uncertain} for t in result.tables if t.order==recognized.order),None) if recognized.type=='table' else None,
                             bbox=recognized.bbox, section=section, content_hash=digest(recognized.text), recognition_id=key)
                         page_blocks.append(block)
                 self.store.page(p, page_blocks)

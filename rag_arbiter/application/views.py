@@ -23,7 +23,7 @@ class ResultsService:
             return self.snapshot(cfg.rechunk_source_run_id)
         return {}
 
-    def chat_snapshot(self, base_run_id, network_source_id=None, source_scope="ALL_DOCUMENTS"):
+    def chat_snapshot(self, base_run_id, network_source_id=None, source_scope="ALL_DOCUMENTS", selected_document_ids=None):
         """Compose existing active partitions; never build a second index."""
         import copy
         from .rechunk import partitions
@@ -59,6 +59,21 @@ class ResultsService:
                 entry = next((e for e in snapshot(rid).get('corpus', {}).get('documents', []) if e['document_id'] == did), None)
                 if entry:
                     selected[did] = (rid, entry, row['source_id'])
+            # Fixed Chat scopes retain their explicitly selected content-addressed version.
+            # Dynamic scopes still use only the current active registry partition.
+            if selected_document_ids:
+                from .document_versions import ready
+                from ..network.notifications import source_access
+                versions=store.all('document_versions')
+                for version in versions:
+                    did=version['canonical_document_id']
+                    if did not in selected_document_ids or source_scope=='MANUAL':continue
+                    if network_source_id and version['source_id']!=network_source_id:continue
+                    if not source_access(self.runs,store.get('network_sources',version['source_id'])) or not ready(store,version):continue
+                    rid=store.get('document_version_indexes',version['version_id'])['run_id']
+                    entry=next((e for e in snapshot(rid).get('corpus',{}).get('documents',[]) if e['document_id']==did),None)
+                    if entry:selected[did]=(rid,entry,version['source_id'])
+                selected={did:value for did,value in selected.items() if did in selected_document_ids}
             entries, parts, identities = [], [], []
             for did, (rid, entry, source_id) in selected.items():
                 index = snapshot(rid).get('indexes', {}).get('structure') or {}

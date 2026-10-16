@@ -29,6 +29,7 @@ class ContextualDiscovery:
                 return result
             result['source_name'] = source['name']
             decisions = {r['event_id'] for r in store.all('chat_discovery_decisions') if r['session_id'] == sid and r['action'] in ('add', 'dismiss')}
+            versions = store.all('document_versions')
             since = session.get('discovery_since') or session['created_at']
             rows = [r for r in store.all('network_files') if r['source_id'] == source['id']
                     and r.get('discovery_event_id') and r['discovery_event_id'] not in decisions
@@ -42,7 +43,8 @@ class ContextualDiscovery:
             status = ('INDEXED' if ready else 'PROCESSING' if row.get('ingestion_status') in ('PROCESSING', 'QUEUED')
                       else 'FAILED' if row.get('error') or row.get('ingestion_status') in ('FAILED', 'CANCELLED')
                       or row.get('indexing_status') in ('FAILED', 'PARTIAL') else 'NEW')
-            result['files'].append(dict(event_id=row['discovery_event_id'], file_id=row['id'],
+            replaced=[v['canonical_document_id'] for v in versions if v['document_id']==row['id'] and v['canonical_document_id'] in selected and v['canonical_document_id']!=row.get('document_id')]
+            result['files'].append(dict(change_type='MODIFIED' if replaced else 'NEW',replaces_document_ids=list(dict.fromkeys(replaced)),event_id=row['discovery_event_id'], file_id=row['id'],
                 source_id=row['source_id'], document_id=row.get('document_id'),
                 fingerprint=row['discovery_fingerprint'], filename=row['filename'], status=status))
         result['files'].sort(key=lambda f: (f['event_id'], f['file_id']))
@@ -85,7 +87,8 @@ class ContextualDiscovery:
                     document_id=file['document_id'], fingerprint=file['fingerprint'],
                     action='add' if action == 'add' and file['document_id'] in confirmed else 'dismiss', decided_at=now())
             if action == 'add':
-                selected = session.get('selected_document_ids') or [session['document_id']]
+                replaced={did for f in files.values() if f['document_id'] in confirmed for did in f.get('replaces_document_ids',[])}
+                selected = [did for did in (session.get('selected_document_ids') or [session['document_id']]) if did not in replaced]
                 # Selection and acknowledgement commit atomically in the established scope transaction.
                 session = self.chat.select_source(sid, session['source_scope'], session['source_id'], expected_version,
                     list(dict.fromkeys([*selected, *confirmed])), preserve_discovery_since=True,

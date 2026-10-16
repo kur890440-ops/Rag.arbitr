@@ -9,19 +9,74 @@ function showKnowledgeUpdate(){
  toast.textContent=`База знаний обновлена.\nДобавлено ${count} новых документов.`;toast.hidden=false;
  setTimeout(()=>{toast.hidden=true;toast.textContent='';toastActive=false;showKnowledgeUpdate();},5000);
 }
+const dismissedReviews=new Map();
+function reviewDismissals(){
+ const key='rag-chat-dismissed-reviews:'+state()?.session;
+ if(!dismissedReviews.has(key)){
+  let ids=[];try{const saved=JSON.parse(localStorage.getItem(key)||'[]');if(Array.isArray(saved))ids=saved;}catch(_){}
+  dismissedReviews.set(key,new Set(ids));
+ }
+ return {key,ids:dismissedReviews.get(key)};
+}
+function renderDocumentReviews(rows){
+ const feed=$('#document-review-feed');if(!feed)return;
+ const dismissed=reviewDismissals();rows=rows.filter(row=>!dismissed.ids.has(row.review_id));
+ const signature=JSON.stringify(rows);if(feed.dataset.signature===signature)return;
+ const opened=new Set([...feed.querySelectorAll('details[open]')].map(e=>e.dataset.review));
+ feed.dataset.signature=signature;feed.hidden=!rows.length;feed.replaceChildren();
+ const labels={document_type:'Вид документа',summary:'Краткое содержание',key_provisions:'Основные положения',important_dates:'Даты',important_amounts:'Суммы',obligations:'Обязанности',attention_points:'Вопросы для проверки',material_changes:'Оценка существенности',possible_consequences:'Возможные последствия — предположения'};
+ const errors={VERSION_NOT_AVAILABLE:'Предыдущая версия недоступна для сравнения.',INDEX_NOT_READY:'Новая версия ещё не готова к анализу.',REVIEW_GENERATION_FAILED:'Не удалось сформировать анализ.',DIFF_FAILED:'Не удалось сравнить версии.',DOCUMENT_TOO_LARGE:'Документ превышает лимит автоматического анализа.',ACCESS_DENIED:'Нет доступа к источнику.'};
+ function text(parent,tag,value){const e=document.createElement(tag);e.textContent=value;parent.append(e);return e;}
+ if(rows.length){
+  const header=document.createElement('div');header.className='document-review-header';feed.append(header);
+  const close=text(header,'button','Закрыть');close.type='button';close.className='secondary';close.setAttribute('aria-label','Закрыть автоматический анализ документов');
+  close.addEventListener('click',()=>{
+   for(const row of rows)dismissed.ids.add(row.review_id);
+   try{localStorage.setItem(dismissed.key,JSON.stringify([...dismissed.ids]));}catch(_){}
+   feed.hidden=true;feed.replaceChildren();delete feed.dataset.signature;
+  });
+ }
+ for(const row of rows){
+  const card=document.createElement('article');card.className='document-review';feed.append(card);
+  text(card,'strong',(row.kind==='NEW'?'Добавлен документ: ':'Изменён документ: ')+row.document_name);
+  if(row.counts)text(card,'p',`Добавлено: ${row.counts.ADDED}. Удалено: ${row.counts.REMOVED}. Изменено: ${row.counts.MODIFIED}. Перемещено: ${row.counts.MOVED}.`);
+  if(row.error)text(card,'p',errors[row.error]||row.error);
+  if(['QUEUED','RUNNING'].includes(row.status))text(card,'p','Автоматический анализ: '+(row.status==='QUEUED'?'ожидает обработки':'выполняется'));
+  const summary=row.result?.summary;
+  if(summary){text(card,'p',row.interpretation?'Оценка LLM:':'Краткое содержание:');for(const item of (Array.isArray(summary)?summary.slice(0,3):[{text:summary}]))text(card,item.text.trim().startsWith('|')?'pre':'p',item.text);if(Array.isArray(summary)&&summary.length>3)text(card,'small','Полное резюме — ниже.');}
+  const details=document.createElement('details');details.dataset.review=row.review_id;details.open=opened.has(row.review_id);card.append(details);
+  text(details,'summary',row.kind==='MODIFIED'?'Подробные изменения':'Подробное резюме и источники');
+  if(row.warnings?.length)text(details,'p','UNCERTAIN: соответствие некоторых блоков неоднозначно.');
+  function source(version,block,label){if(!block)return;const button=text(details,'button',label);button.type='button';button.className='secondary chat-source';button.dataset.url='/ui/chat/'+state().session+'/reviews/'+row.review_id+'/versions/'+version+'/blocks/'+block;}
+  for(const c of row.changes||[]){
+   text(details,'strong',c.change_type+' · '+c.status+' · '+c.section);
+   if(c.old_text){text(details,'pre','Было: '+c.old_text);source(c.old_version_id,c.old_block_id,'Источник прежней версии');}
+   if(c.new_text){text(details,'pre','Стало: '+c.new_text);source(c.new_version_id,c.new_block_id,'Источник новой версии');}
+   for(const cell of c.table_changes||[])text(details,'p',`Строка: ${cell.row} · Столбец: ${cell.column} · ${cell.old_value??'—'} → ${cell.new_value??'—'}`);
+  }
+  if(row.interpretation)text(details,'p','Ниже — интерпретация модели. Возможные последствия не являются установленными фактами.');
+  for(const [field,values] of Object.entries(row.result||{})){
+   if(!Array.isArray(values)||!values.length)continue;
+   text(details,'strong',labels[field]||field);
+   for(const item of values){text(details,item.text.trim().startsWith('|')?'pre':'p',item.text);for(const id of item.source_references||[]){const ref=(row.source_references||[]).find(r=>r.reference_id===id);if(ref?.block_id)source(ref.version_id,ref.block_id,'Подтверждающий фрагмент');if(ref?.change_id){const change=(row.changes||[]).find(c=>c.change_id===ref.change_id);if(change){source(change.old_version_id,change.old_block_id,'До изменения');source(change.new_version_id,change.new_block_id,'После изменения');}}}}
+  }
+  text(details,'small','Версия: '+row.new_version_id+' · '+row.status);
+ }
+}
 function renderDiscovery(notice){
  const panel=$('#chat-discovery-notice');if(!panel)return;
  discoveryNotice=notice;
  panel.hidden=!notice?.files.length;if(panel.hidden)return;
- $('#discovery-title').textContent=`В источнике ${notice.source_name} найдены новые документы — ${notice.files.length}.`;
+ const changed=notice.files.some(f=>f.change_type==='MODIFIED'),fresh=notice.files.some(f=>f.change_type!=='MODIFIED');
+ $('#discovery-title').textContent=`В источнике ${notice.source_name} найдены ${changed?(fresh?'новые документы и версии':'новые версии документов'):'новые документы'} — ${notice.files.length}.`;
  const list=$('#discovery-files'),signature=JSON.stringify(notice.files);
  if(list.dataset.signature!==signature){
   const position=list.scrollTop;list.replaceChildren();
-  for(const file of notice.files){const li=document.createElement('li'),name=document.createElement('span'),status=document.createElement('span');name.textContent=file.filename;status.textContent=file.status;li.append(name,status);list.append(li);}
+  for(const file of notice.files){const li=document.createElement('li'),name=document.createElement('span'),status=document.createElement('span');name.textContent=file.filename;status.textContent=(file.change_type==='MODIFIED'?'Новая версия · ':'')+file.status;li.append(name,status);list.append(li);}
   list.dataset.signature=signature;list.scrollTop=position;
  }
  $('#discovery-ready').textContent=`Готовы к анализу: ${notice.ready_count}`;
- $('#discovery-add').textContent=`Добавить ${notice.ready_count} документов`;
+ $('#discovery-add').textContent=notice.files.some(f=>f.change_type==='MODIFIED')?`Добавить / обновить ${notice.ready_count} документов`:`Добавить ${notice.ready_count} документов`;
  syncDiscoveryButtons();
 }
 function syncDiscoveryButtons(){
@@ -37,7 +92,7 @@ async function pollKnowledgeUpdates(){
   if(r.ok){const data=await r.json();
    if(discoveryBusy||scopeSaving||sid!==state()?.session||version!==$('#chat-source-controls')?.dataset.version)return;
    if(data.notice&&Number(version)!==data.notice.scope_version){if(!data.session||data.session.scope_version!==data.notice.scope_version)return;applyScopeSession(data.session);}
-   renderDiscovery(data.notice);
+   renderDiscovery(data.notice);renderDocumentReviews(data.reviews||[]);
    for(const event of data.events){if(event.id>notificationCursor)notificationQueue.push(event.count);}
    notificationCursor=Math.max(notificationCursor,data.cursor);showKnowledgeUpdate();
   }

@@ -104,7 +104,14 @@ class ChatSessionService:
         selected_document_ids=list(dict.fromkeys(selected_document_ids or []))
         current=self.load(sid)['session']
         if selected_document_ids:
-            active=ResultsService(self.runs).chat_snapshot(current['processing_run_id'],source_id,source_scope=scope)
+            with self.runs.db() as store:
+                logical={}
+                for version in store.all('document_versions'):
+                    if version['canonical_document_id'] in selected_document_ids:
+                        logical.setdefault(version['document_id'],set()).add(version['canonical_document_id'])
+                if any(len(ids)>1 for ids in logical.values()):
+                    raise ChatValidationError('Выберите только одну версию каждого документа. Новая версия заменяет прежнюю.')
+            active=ResultsService(self.runs).chat_snapshot(current['processing_run_id'],source_id,source_scope=scope,selected_document_ids=selected_document_ids)
             if not set(selected_document_ids)<=set(active['document_runs']):
                 raise ChatValidationError('Выбранные документы недоступны в активном индексе этой области. Обновите выбор.')
         with self.runs.db() as store, store.db:
@@ -203,7 +210,7 @@ class ChatSessionService:
                 t.response=ChatResponse(answer_text=text,task_state_version=state.version,resolved_question=question,status='ARCHIVE_STATUS')
                 return self.finish(t,started)
             if help_command:t.trace['assistant_target']='DOCUMENT_CONTENT'
-            snapshot=ResultsService(self.runs).chat_snapshot(data['session']['processing_run_id'],selection.get('source_id') if t.scope=='NETWORK' else None,source_scope=t.scope)
+            snapshot=ResultsService(self.runs).chat_snapshot(data['session']['processing_run_id'],selection.get('source_id') if t.scope=='NETWORK' else None,source_scope=t.scope,selected_document_ids=selection.get('selected_document_ids') or ([selection['document_id']] if selection.get('document_id') else []))
             sources=snapshot['document_sources']
             allowed=[did for did, source_id in sources.items() if t.scope=='ALL_DOCUMENTS' or
                 (t.scope=='MANUAL' and source_id is None) or (t.scope=='NETWORK' and source_id is not None and (not selection.get('source_id') or source_id==selection.get('source_id')))]

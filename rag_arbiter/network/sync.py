@@ -32,6 +32,10 @@ class SyncService:
         self.signals = {}
         self.closed = False
         self.scheduler_running = False
+        from ..application.document_versions import backfill
+        from ..application.document_review import DocumentReviewService
+        backfill(runs)
+        self.reviews = DocumentReviewService(runs)
         with runs.db() as store:
             from .notifications import record_discovery
             for row in store.all('network_files'):
@@ -413,6 +417,15 @@ class SyncService:
 
     def ingest(self, row, temp, scan, signal):
         self.check(signal)
+        from ..application.document_versions import capture
+        with self.runs.db() as store:
+            previous=store.get('network_files',row['id']) or {}
+            # The current registry metadata already contains the new hash; previous provenance owns the old one.
+            old_origin=next((p for p in reversed(store.all('network_provenance')) if p.get('source_id')==row['source_id'] and p.get('relative_path')==row['relative_path'] and p.get('document_id')==previous.get('document_id')),None)
+            old_version=capture(store,{**previous,**old_origin}) if old_origin else None
+            from ..application.document_versions import ready
+            if old_version and not ready(store,old_version):
+                old_version=next((v for v in reversed(store.all('document_versions')) if v['document_id']==row['id'] and ready(store,v)),None)
         # Immutable path + hash matches the existing Ingestor document identity.
         folder = self.config.web_data_path / 'network' / 'versions' / row['id'] / row['content_hash']
         folder.mkdir(parents=True, exist_ok=True)
@@ -460,3 +473,8 @@ class SyncService:
         provenance = {k: row.get(k) for k in ('source_id','relative_path','content_hash','discovered_at','last_sync_at','document_id','run_id')}
         with self.runs.db() as store:
             store.put('network_provenance', digest([row['id'], row['content_hash']]), provenance)
+        # A durable review failure must not roll back successful indexing.
+        try:
+            self.reviews.schedule(row,old_version,modified=row.get('status')=='MODIFIED' and bool(old_version or previous.get('last_indexed')))
+        except Exception:
+            row['review_error']='REVIEW_GENERATION_FAILED'

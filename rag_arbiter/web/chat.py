@@ -47,8 +47,23 @@ def register_chat(app,render):
         result['notice'] = service.snapshot(session_id) if session_id else None
         if result['notice']:
             service.presented(result['notice'])
+        result['reviews'] = request.app.state.network.reviews.feed(session) if session else []
         result['session'] = session
         return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+
+    @app.get('/ui/chat/{sid}/reviews/{review_id}/versions/{version_id}/blocks/{block_id}')
+    def review_source(request: Request, sid: str, review_id: str, version_id: str, block_id: str):
+        from ..application.contextual_discovery import ContextualDiscovery
+        service=request.app.state.network.reviews
+        session=ContextualDiscovery(request.app.state.chat).session(sid)
+        job=next((r for r in service.feed(session) if r['review_id']==review_id),None)
+        if not job or version_id not in (job['old_version_id'],job['new_version_id']):raise KeyError('Review source unavailable')
+        with service.runs.db() as store:
+            doc=store.get('document_version_contents',version_id)
+            version=store.get('document_versions',version_id)
+        block=next((b for b in (doc or {}).get('blocks',[]) if b['block_id']==block_id),None)
+        if not block:raise KeyError('Version block unavailable')
+        return render(request,'review_source.html',document=doc,version=version,block=block)
 
     @app.post('/api/chat/sessions/{sid}/discovery-decision')
     def discovery_decision(request: Request, sid: str, body: DiscoveryDecision):
