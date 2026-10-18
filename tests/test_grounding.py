@@ -229,3 +229,56 @@ def test_sentence_crossing_pages_has_two_exact_canonical_locators(setup,fault):
         assert len(quotes[0].parts)==2 and builder.exact(quotes[0])
         store.rows['document_blocks']['b2']['text']='Changed'
         assert not builder.exact(quotes[0])
+
+
+@pytest.mark.parametrize('recovery',['SUCCESS','TRUNCATED','ERROR'])
+def test_consult_output_limit_has_one_fully_revalidated_restart(setup,recovery):
+    _,builder,source=setup;calls=[]
+    record=dict(sources=[source],retry_output_limit=True)
+    def generate(context,kind):
+        calls.append(context)
+        status='TRUNCATED' if len(calls)==1 else recovery
+        return LLMResult(model='test',status=status,text=contract().model_dump_json() if status=='SUCCESS' else 'UNFINISHED_SECRET_TEXT',request_count=1,usage=dict(total_tokens=100),error={} if status=='SUCCESS' else {'code':'OUTPUT_LIMIT'}).model_dump()
+    result=grounded_generation(record,'ORIGINAL EVIDENCE',generate,builder,Reranker(),.5)
+    assert len(calls)==2 and calls[1].startswith('ORIGINAL EVIDENCE')
+    assert 'UNFINISHED_SECRET_TEXT' not in calls[1] and 'UNFINISHED_SECRET_TEXT' not in result['text']
+    assert result['usage']['total_tokens']==200
+    if recovery=='SUCCESS':
+        assert record['grounding_status']=='GROUNDED' and record['citations_json']
+    else:
+        assert record['grounding_status']=='ERROR' and not record['citations_json']
+
+
+def test_output_limit_does_not_add_retry_for_other_callers(setup):
+    _,builder,source=setup;calls=[]
+    def generate(context,kind):
+        calls.append(context)
+        return LLMResult(model='test',status='TRUNCATED',text='UNFINISHED').model_dump()
+    result=grounded_generation(dict(sources=[source]),'evidence',generate,builder,Reranker(),.5)
+    assert len(calls)==1 and not result['text']
+
+
+def test_failed_first_answer_uses_canonical_repair_not_second_generation(setup):
+    _,builder,source=setup;calls=[];repair_calls=[]
+    def generate(context,kind):
+        calls.append(context)
+        if len(calls)>1:return LLMResult(model='test',status='TRUNCATED',text='',error={'code':'OUTPUT_LIMIT'}).model_dump()
+        return LLMResult(model='test',status='SUCCESS',text=contract('Payment is 999 rubles.').model_dump_json()).model_dump()
+    def repair(b,sources):
+        repair_calls.append(sources)
+        return contract()
+    record=dict(sources=[source],retry_output_limit=True)
+    result=grounded_generation(record,'unchanged evidence',generate,builder,Reranker(),.5,extractive_repair=repair)
+    assert len(calls)==1 and repair_calls==[[source]]
+    assert record['grounding_status']=='GROUNDED' and record['citations_json']
+    assert '999' not in result['text']
+    assert record['grounding_diagnostics'][0]['result']['claims_unsupported']==1
+
+
+def test_canonical_repair_cannot_bypass_grounding(setup):
+    _,builder,source=setup
+    def generate(context,kind):return LLMResult(model='test',status='SUCCESS',text=contract('Payment is 999 rubles.').model_dump_json()).model_dump()
+    record=dict(sources=[source])
+    result=grounded_generation(record,'evidence',generate,builder,Reranker(),.5,extractive_repair=lambda b,s:contract('Payment is 777 rubles.'))
+    assert record['grounding_status']=='INSUFFICIENT_CONTEXT' and not record['citations_json']
+    assert '777' not in result['text'] and '999' not in result['text']

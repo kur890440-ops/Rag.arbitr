@@ -65,6 +65,13 @@ def test_catalog_filters_lazy_tree_viewer_and_document_chat(ragweb,tmp_path):
     assert len(CatalogService(runs).snapshot('MANUAL')['files'])==2
     with runs.db() as store:
         row['active_run_id']=None;store.put('network_files',row['id'],row)
+        # Day32 keeps explicitly pinned versions even when the registry head disappears.
+        # This scenario requires that the pinned version's index is unavailable too.
+        for version in store.all('document_versions'):
+            if version['canonical_document_id']==row['document_id']:
+                index=store.get('document_version_indexes',version['version_id'])
+                if index:
+                    index['status']='FAILED';store.put('document_version_indexes',version['version_id'],index)
     stale=ask(client,selected['session_id'],'/help Какие условия?')
     assert stale['response']['status']=='NO_INDEXED_DOCUMENTS' and stale['comparison_run_id'] is None
     # Historical manifests can outlive document metadata or have null filenames.

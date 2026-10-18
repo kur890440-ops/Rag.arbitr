@@ -7,7 +7,7 @@
 {% for tab,label in [('sources','Источники документов'),('overview','Обзор'),('recognition','Распознавание'),('chunking','Chunking'),('retrieval','Поиск')] %}<a href="/{% if data and data.session.processing_run_id %}?run_id={{data.session.processing_run_id}}{% endif %}#{{tab}}">{{label}}</a>{% endfor %}
 <a href="/chat{% if data %}?session_id={{data.session.session_id}}{% endif %}" aria-current="page">Чат</a>
 {% for tab,label in [('evaluation','Evaluation'),('diagnostics','Diagnostics'),('llm-optimization','LLM Optimization')] %}<a href="/{% if data and data.session.processing_run_id %}?run_id={{data.session.processing_run_id}}{% endif %}#{{tab}}">{{label}}</a>{% endfor %}
-</nav>
+<a href="/publications">Публикация</a><a href="/users">Пользователи</a></nav>
 <dialog id="history-drawer" class="chat-drawer drawer-left" aria-labelledby="history-title"><div class="drawer-heading"><h2 id="history-title">История чатов</h2><button type="button" data-close-drawer="history-drawer" class="secondary">Закрыть</button></div><nav class="chat-sessions" aria-label="Сессии">
 <label for="chat-corpus">Корпус нового чата</label><select id="chat-corpus">{% for r in runs if r.status not in ['RUNNING','QUEUED'] and r.get('operation') != 'analysis_fixture' %}<option value="{{r.run_id}}">{{r.created_at[:19]}} · {{r.status}} · {{r.run_id[:8]}}</option>{% endfor %}</select>
 <button id="new-chat">Новый чат</button>

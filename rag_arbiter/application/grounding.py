@@ -27,10 +27,15 @@ class GroundedClaim(BaseModel):
     model_config = ConfigDict(extra='forbid')
     claim_id: str = Field(pattern=r'^C[1-9]\d*$', max_length=16)
     text: str = Field(min_length=1, max_length=4000)
-    supporting_source_ids: list[str] = Field(default_factory=list, max_length=20)
+    supporting_source_ids: list[str] = Field(default_factory=list, max_length=128)
     support_status: str = 'UNCHECKED'
     support_scores: dict = Field(default_factory=dict)
     repair_status: str = 'NOT_USED'
+    subject: str | None = None
+    predicate: str | None = None
+    object: str | None = None
+    subject_role: str | None = None
+    validation_reason: str | None = None
 
 
 class AnswerContract(BaseModel):
@@ -47,6 +52,7 @@ class Citation(BaseModel):
     claim_id: str
     source_id: str
     document_id: str
+    document_version_id: str | None = None
     chunk_id: str
     anchor_chunk_ids: list[str]
     file_title: str
@@ -104,12 +110,58 @@ def lexical_support(claim, quote):
     return None
 
 
+def numeric_support(claim, quote):
+    """Compare literal numbers, with exact parsed calendar dates as the sole alias.
+
+    Normalized dates remain tied to the supplied quote. No edit distance or
+    number guessing is allowed; invalid calendar dates cannot supply numbers.
+    """
+    from datetime import date
+    months=('января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря')
+    def dates(text):
+        matches=[]
+        for m in re.finditer(r'(?<!\d)(\d{1,2})[.](\d{1,2})[.](\d{4})(?!\d)',text):
+            matches.append((m,int(m[1]),int(m[2]),int(m[3])))
+        for m in re.finditer(r'(?<!\d)[«"“]?(\d{1,2})[»"”]?\s+('+'|'.join(months)+r')\s+(\d{4})(?!\d)',text.casefold()):
+            matches.append((m,int(m[1]),months.index(m[2])+1,int(m[3])))
+        valid=[]
+        for m,d,mo,y in matches:
+            try:valid.append((m.span(),date(y,mo,d)))
+            except ValueError:pass
+        return valid
+    qdates=dates(quote);cdates=dates(claim)
+    common={d for _,d in cdates}&{d for _,d in qdates}
+    def residual(text, parsed):
+        chars=list(text)
+        for (start,end),d in parsed:
+            if d in common:chars[start:end]=' '*(end-start)
+        return set(re.findall(r'\d+',''.join(chars)))
+    return residual(claim,cdates)<=residual(quote,qdates)
+
+
 class CitationBuilder:
     def __init__(self, store):
         self.store = store
 
     def exact(self, citation):
         if citation.parts:
+            if len(citation.parts)<2:return False
+            if citation.locator.get('kind')=='evidence_bundle':
+                versions={p.get('recognition_id') for p in citation.parts}
+                if citation.locator.get('normalized_document'):
+                    document=self.store.get('normalized_documents',citation.document_version_id)
+                    if not document or document['document_id']!=citation.document_id:return False
+                    pinned={b['block_id'] for b in document['blocks']}
+                    if any(p['block_id'] not in pinned for p in citation.parts):return False
+                elif len(versions)!=1 or None in versions:return False
+                fragments=[]
+                for part in citation.parts:
+                    block=self.store.get('document_blocks',part['block_id'])
+                    if not block or block['document_id']!=citation.document_id or block.get('recognition_id') not in versions:return False
+                    start,end=part['start'],part['end']
+                    if not 0<=start<end<=len(block['text']):return False
+                    fragments.append(block['text'][start:end])
+                return (citation.locator.get('normalized_document') or citation.document_version_id==next(iter(versions))) and '\n'.join(fragments)==citation.quote
             if len(citation.parts)!=2:return False
             fragments=[];pages=[]
             for part in citation.parts:
@@ -133,6 +185,10 @@ class CitationBuilder:
                   dict.fromkeys(source.get('expanded_chunk_ids', []) + source.get('anchor_chunk_ids', [source['chunk_id']]))]
         chunks = [c for c in chunks if c and c['document_id'] == source['document_id']]
         allowed = {bid for c in chunks for bid in c.get('source_block_ids', [])}
+        if source.get('document_version_id'):
+            version=self.store.get('normalized_documents',source['document_version_id'])
+            if not version or version['document_id']!=source['document_id']:return []
+            allowed &= {b['block_id'] for b in version['blocks']}
         quotes = []
         words = set(re.findall(r'\w+', claim.text.casefold()))
         for bid in dict.fromkeys(source.get('source_block_ids', [])):
@@ -153,7 +209,7 @@ class CitationBuilder:
                     continue
                 chunk = next(c for c in chunks if bid in c.get('source_block_ids', []))
                 citation = Citation(citation_id='', claim_id=claim.claim_id, source_id=source['reference'],
-                    document_id=block['document_id'], locator_kind=block.get('locator_kind','page'), chunk_id=chunk['chunk_id'],
+                    document_id=block['document_id'], document_version_id=source.get('document_version_id') or block.get('recognition_id'), locator_kind=block.get('locator_kind','page'), chunk_id=chunk['chunk_id'],
                     anchor_chunk_ids=source.get('anchor_chunk_ids', [source['chunk_id']]),
                     file_title=source.get('file_name', ''), section=block.get('section') or source.get('section') or '',
                     page_start=block['page_number'], page_end=block['page_number'], quote=fragment,
@@ -186,8 +242,28 @@ class CitationBuilder:
                 locator={**parts[0],'separator':match.group(1)},parts=parts)
             c.exact_match=self.exact(c)
             quotes.append((len(words & set(re.findall(r'\w+',c.quote.casefold()))),c))
-        # Bound inference, prefer short fragments on ties. No invented locator fallback.
-        return [c for _, c in sorted(quotes, key=lambda p: (-p[0], len(p[1].quote)))[:6]]
+        ranked=[c for _,c in sorted(quotes,key=lambda p:(-p[0],len(p[1].quote)))[:6]]
+        # A bundle is a set of exact spans, not a fabricated continuous quotation.
+        # Final semantic review still has to establish the relation between them.
+        parts=[];seen=set();version=None
+        document_version=source.get('document_version_id')
+        document=self.store.get('normalized_documents',document_version) if document_version else None
+        pinned={b['block_id'] for b in document['blocks']} if document and document['document_id']==source['document_id'] else set()
+        for c in ranked:
+            if c.parts or not c.exact_match:continue
+            loc=c.locator;v=loc.get('recognition_id')
+            if not v or (not pinned and version is not None and v!=version):continue
+            if pinned and loc['block_id'] not in pinned:continue
+            if loc['block_id'] in seen:continue
+            version=v;seen.add(loc['block_id'])
+            parts.append(dict(**loc,page_number=c.page_start))
+        if len(parts)>1:
+            quote='\n'.join(self.store.get('document_blocks',p['block_id'])['text'][p['start']:p['end']] for p in parts)
+            bundle=ranked[0].model_copy(update=dict(quote=quote,parts=parts,document_version_id=document_version if pinned else version,
+                locator=dict(kind='evidence_bundle',normalized_document=bool(pinned)),page_start=min(p['page_number'] for p in parts),page_end=max(p['page_number'] for p in parts)))
+            bundle.exact_match=self.exact(bundle)
+            ranked.append(bundle)
+        return ranked
 
 
 class GroundingValidator:
@@ -226,8 +302,7 @@ class GroundingValidator:
                                  missing_terms=missing_fact_terms(claim.text, c.quote))
                     quote_checks.append(check)
                     # A relevance score cannot license invented numeric facts.
-                    numbers = set(re.findall(r'\d+', claim.text))
-                    numeric = numbers <= set(re.findall(r'\d+', c.quote))
+                    numeric = numeric_support(claim.text,c.quote)
                     if not numeric:
                         check['reason'] = 'UNSUPPORTED_NUMBERS'
                         continue
@@ -256,6 +331,12 @@ class GroundingValidator:
                     best.citation_id = f'Q{len(citations)+1}'
                     citations.append(best)
                     claim.support_status = 'SUPPORTED'
+            reasons={v.get('reason') for v in claim.support_scores.values()}
+            claim.validation_reason=('CONFIRMED' if claim.support_status=='SUPPORTED' else
+                'INVALID_NUMERIC_NORMALIZATION' if 'UNSUPPORTED_NUMBERS' in reasons else
+                'CONTRADICTED' if 'NEGATION_MISMATCH' in reasons else
+                'INCOMPLETE_EVIDENCE_BUNDLE' if 'LOW_FACT_COVERAGE' in reasons else
+                'MISSING_EVIDENCE' if not reasons or reasons=={'NO_CANONICAL_QUOTE'} else 'UNSUPPORTED_RELATION')
             result.claims_supported += int(claim.support_status == 'SUPPORTED')
         result.claims_unsupported = result.claims_total - result.claims_supported
         result.sources_count = len({c.source_id for c in citations})
@@ -318,7 +399,7 @@ def evaluate_grounding(records):
     return out
 
 
-def grounded_generation(record, context, generate, builder, reranker, threshold, *, repair_only=False, progress=None, repair_context_limit=None):
+def grounded_generation(record, context, generate, builder, reranker, threshold, *, repair_only=False, progress=None, repair_context_limit=None, extractive_repair=None):
     """One original generation and at most ONE repair, with the same source set."""
     trace = []
     record.update(claim_support_threshold=threshold, claims_json=[], citations_json=[],
@@ -327,14 +408,33 @@ def grounded_generation(record, context, generate, builder, reranker, threshold,
     record['generation_attempts'] = []
     total_usage, duration, requests = {}, 0, 0
     final_result = GroundingResult()
+    raw={'model':'canonical-evidence'}
     for attempt in range(1 if repair_only else 0, 2):
-        raw = generate(current_context, 'grounded_rag')
+        if attempt==1 and extractive_repair is not None:
+            import time
+            started=time.perf_counter()
+            try:
+                recovered=extractive_repair(builder,record['sources'])
+                record['answer_rendering']='CANONICAL_EVIDENCE_SELECTION'
+                raw=dict(model=raw['model'],status='SUCCESS',text=recovered.model_dump_json(),usage={},request_count=0,
+                    duration_ms=(time.perf_counter()-started)*1000,diagnostics={'recovery':'CANONICAL_EVIDENCE_SELECTION'},error={})
+            except Exception:
+                raw=dict(model=raw['model'],status='ERROR',text='',usage={},request_count=0,
+                    duration_ms=(time.perf_counter()-started)*1000,diagnostics={'recovery':'CANONICAL_EVIDENCE_SELECTION'},error={'code':'EXTRACTIVE_RECOVERY_FAILED'})
+        else:
+            raw = generate(current_context, 'grounded_rag')
         record['generation_attempts'].append(dict(attempt=attempt, provider=raw.get('provider'),
             duration_ms=raw['duration_ms'], status=raw['status'], usage=dict(raw.get('usage', {})),
             diagnostics=dict(raw.get('diagnostics', {}))))
         duration += raw['duration_ms']; requests += raw.get('request_count', 0)
         for k, value in raw.get('usage', {}).items():
             total_usage[k] = total_usage.get(k, 0) + value
+        if (raw['status']=='TRUNCATED' and attempt==0 and record.get('retry_output_limit')):
+            # Discard unfinished prose; restart once from the same immutable
+            # evidence, sharing the existing one-repair allowance and budgets.
+            trace.append(dict(attempt=attempt,error='OUTPUT_LIMIT',recovery='CANONICAL_EVIDENCE_SELECTION' if extractive_repair else 'RESTART_COMPACT'))
+            current_context=context+'\nREPAIR: предыдущая генерация не завершилась. Начни новый ответ только по исходным источникам. Дай не более двух коротких самостоятельных утверждений по вопросу. Не перечисляй реквизиты и дополнительные сведения без запроса. Верни законченный JSON установленного формата или insufficient_context=true. Не продолжай оборванный текст.'
+            continue
         if raw['status'] != 'SUCCESS':
             raw.update(text='', duration_ms=duration, request_count=requests, usage=total_usage)
             final_result.repair_used = bool(attempt)
@@ -384,6 +484,8 @@ def grounded_generation(record, context, generate, builder, reranker, threshold,
             final_result = GroundingResult(refusal_reason='INVALID_CONTRACT', repair_used=bool(attempt))
             trace.append(dict(attempt=attempt, error='INVALID_CONTRACT'))
             repair = dict(error='INVALID_CONTRACT_OR_CLAIM_COVERAGE')
+        if attempt == 0 and extractive_repair is not None:
+            continue
         if attempt == 0:
             repair_instruction = ('\nREPAIR: перепиши ответ, используя только подтвержденные факты из тех же источников; иначе откажись. '
                 'В quote_checks приведены проверенные фрагменты и причины отклонения. missing_terms — слова утверждения, '

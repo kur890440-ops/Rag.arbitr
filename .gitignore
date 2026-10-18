@@ -44,3 +44,7 @@ data/day31-doc-*/
 # Day32 local source versions and review evidence.
 data/day32-e2e/
 data/day32-browser/
+
+# Synthetic Day33 browser/model evidence, never a public corpus default.
+data/day33-e2e/
+data/day33-internal-e2e/

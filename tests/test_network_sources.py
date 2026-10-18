@@ -30,7 +30,9 @@ def setup(config, tmp_path):
 
 def scan(sync, source):
     sid = sync.start(source['id'])
-    deadline = time.monotonic()+40
+    # A cold DOCX parser import on Windows can exceed 40 s before ingestion starts.
+    # Keep a bounded integration wait; terminal FAILED still fails the caller.
+    deadline = time.monotonic()+120
     while time.monotonic() < deadline:
         with sync.runs.db() as store:
             row = store.get('network_scans', sid)

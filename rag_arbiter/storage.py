@@ -4,7 +4,7 @@ import sqlite3
 
 class MetadataStore:
     """SQLite is canonical for text and metadata; vectors live only in Qdrant/cache."""
-    TABLES = ("document_versions", "document_version_contents", "document_version_indexes", "document_reviews", "documents", "document_pages", "document_blocks", "chunks", "corpora",
+    TABLES = ("public_document_grants", "consult_usage", "document_versions", "document_version_contents", "document_version_indexes", "document_reviews", "documents", "document_pages", "document_blocks", "chunks", "corpora",
               "corpus_documents", "index_runs", "embeddings_metadata", "evaluation_queries",
               "evaluation_runs", "retrieval_results", "recognition_metadata", "processing_runs",
               "processing_run_errors", "uploads", "recognition_cache", "chunk_settings", "normalized_documents",
@@ -17,7 +17,7 @@ class MetadataStore:
         self.db = sqlite3.connect(path, timeout=30)
         self.db.execute("PRAGMA journal_mode=WAL")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 10:
+        if version > 11:
             raise ValueError("Unsupported database schema")
         for table in self.TABLES:
             self.db.execute(f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)))")
@@ -51,7 +51,27 @@ class MetadataStore:
                 self.db.execute('UPDATE rag_comparison_runs SET data=? WHERE id=?',(json.dumps(r,ensure_ascii=False),key))
         self.db.execute("CREATE INDEX IF NOT EXISTS chat_messages_session ON chat_messages(json_extract(data,'$.session_id'),json_extract(data,'$.sequence'))")
         self.db.execute("CREATE INDEX IF NOT EXISTS chat_turns_session ON chat_turns(json_extract(data,'$.session_id'))")
-        self.db.execute("PRAGMA user_version=10")
+        self.db.executescript("""
+CREATE TABLE IF NOT EXISTS auth_users (
+ id TEXT PRIMARY KEY, telegram_user_id INTEGER NOT NULL UNIQUE,
+ username TEXT NOT NULL, display_name TEXT NOT NULL,
+ role TEXT NOT NULL CHECK(role IN ('ADMIN','CLIENT')),
+ status TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE','BLOCKED')),
+ created_at REAL NOT NULL, updated_at REAL NOT NULL, last_login_at REAL);
+CREATE TABLE IF NOT EXISTS auth_codes (
+ nonce_hash TEXT PRIMARY KEY, code_hash TEXT UNIQUE NOT NULL,
+ expires REAL NOT NULL, user_id TEXT REFERENCES auth_users(id), consumed INTEGER NOT NULL DEFAULT 0,
+ attempts INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS auth_sessions (
+ token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES auth_users(id),
+ expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS auth_sessions_user ON auth_sessions(user_id);
+CREATE TABLE IF NOT EXISTS auth_limits (id TEXT PRIMARY KEY, window REAL NOT NULL, count INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS telegram_state (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS telegram_outbox (id TEXT PRIMARY KEY, telegram_user_id INTEGER NOT NULL,
+ text TEXT NOT NULL, created_at REAL NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);
+""")
+        self.db.execute("PRAGMA user_version=11")
         self.db.commit()
 
     def put(self, table, key, data):

@@ -62,11 +62,17 @@ def main(argv=None):
             config.web_host = args.host or config.web_host
             if not 1 <= port <= 65535:
                 raise ValueError("Invalid port")
-            print(f"rag.арбитр Web: http://127.0.0.1:{port}")
+            tls = config.telegram_auth
+            if bool(tls.tls_certfile) != bool(tls.tls_keyfile):
+                raise ValueError("Both TLS certificate and key are required")
+            scheme = "https" if tls.tls_certfile else "http"
+            url = f"{scheme}://127.0.0.1:{port}"
+            print(f"rag.арбитр Web: {url}")
             if args.open_browser:
                 import threading, webbrowser
-                threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
-            uvicorn.run(create_app(config), host=config.web_host, port=port, workers=1)
+                threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+            tls_options = {"ssl_certfile": tls.tls_certfile, "ssl_keyfile": tls.tls_keyfile} if tls.tls_certfile else {}
+            uvicorn.run(create_app(config), host=config.web_host, port=port, workers=1, proxy_headers=False, **tls_options)
             return 0
         if args.command == "recognition":
             from .recognition import create_provider

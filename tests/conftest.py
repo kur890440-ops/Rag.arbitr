@@ -78,3 +78,34 @@ def make_scanned_pdf(path, pages=1):
         pdf.showPage()
     pdf.save()
     image.close()
+
+@pytest.fixture(autouse=True)
+def authenticated_legacy_clients(request,monkeypatch):
+    """Old pipeline/RAG tests run as an explicit synthetic ADMIN.
+
+    Auth/security tests use the real unauthenticated entry flow instead. No
+    production bypass/config switch exists; this only seeds test DB sessions.
+    """
+    monkeypatch.setenv('RAG_TELEGRAM_BOT_TOKEN','')
+    if request.node.path.name=='test_telegram_auth.py':return
+    monkeypatch.setenv('TELEGRAM_ADMIN_IDS','101')
+    import secrets,time
+    from fastapi.testclient import TestClient
+    from rag_arbiter.application.auth import AuthService,digest,COOKIE
+    from rag_arbiter.application.consult import ConsultService
+    def seed(auth):
+        user=auth.register(101,'test_admin','Synthetic administrator');token=secrets.token_urlsafe(32)
+        with auth.transaction() as db:db.execute('INSERT INTO auth_sessions VALUES (?,?,?,0)',(digest(token),user['id'],time.time()+28800))
+        return token
+    enter=TestClient.__enter__
+    def authenticated(client):
+        result=enter(client)
+        if hasattr(client.app,'state') and hasattr(client.app.state,'auth'):
+            client.cookies.set(COOKIE,seed(client.app.state.auth))
+        return result
+    monkeypatch.setattr(TestClient,'__enter__',authenticated)
+    visitor=ConsultService.visitor
+    def direct_session(service,token=None,create=False):
+        if create and token is None and service.auth_guard:token=seed(AuthService(service.runs))
+        return visitor(service,token,create)
+    monkeypatch.setattr(ConsultService,'visitor',direct_session)

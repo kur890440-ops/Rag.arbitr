@@ -62,7 +62,51 @@ class NetworkSourcesConfig(BaseModel):
     stability_retries: int = Field(2, ge=0, le=5)
 
 
+class ConsultConfig(BaseModel):
+    enabled: bool = True
+    public_only: bool = False
+    allowed_networks: list[str] = Field(default_factory=lambda: ["127.0.0.0/8", "::1/128"])
+    @model_validator(mode='after')
+    def validate_networks(self):
+        from ipaddress import ip_network
+        for value in self.allowed_networks:
+            network=ip_network(value)
+            if not (network.is_private or network.is_loopback) or network.prefixlen==0:
+                raise ValueError('Consult requires explicit private LAN/VPN networks')
+        return self
+
+    session_ttl_seconds: int = Field(3600, ge=60, le=86400)
+    max_sessions: int = Field(200, ge=1, le=10000)
+    requests_per_minute: int = Field(6, ge=1, le=60)
+    global_requests_per_minute: int = Field(30, ge=1, le=1000)
+    concurrency: int = Field(2, ge=1, le=8)
+    max_input_chars: int = Field(1500, ge=100, le=4000)
+    input_token_budget: int = Field(24000, ge=8000, le=64000)
+    max_output_tokens: int = Field(4096, ge=512, le=8192)
+    generation_output_tokens: int = Field(8192, ge=512, le=32768)
+    history_budget: int = Field(6000, ge=512, le=12000)
+    history_messages: int = Field(16, ge=2, le=40)
+    timeout: float = Field(180, ge=10, le=600)
+    max_calls_per_turn: int = Field(10, ge=2, le=20)
+    exhaustive_max_calls: int = Field(160, ge=10, le=300)
+    exhaustive_timeout: float = Field(600, ge=120, le=1800)
+    exhaustive_input_budget: int = Field(64000, ge=24000, le=128000)
+    exhaustive_output_tokens: int = Field(8192, ge=1024, le=16384)
+    daily_token_budget: int = Field(1000000, ge=10000)
+
+
+class TelegramAuthConfig(BaseModel):
+    admin_ids: list[int] = Field(default_factory=list)
+    session_ttl: int = Field(28800, ge=120, le=86400)
+    max_sessions_per_user: int = Field(5, ge=1, le=20)
+    max_sessions: int = Field(500, ge=1, le=10000)
+    tls_certfile: str | None = None
+    tls_keyfile: str | None = None
+
+
 class Config(BaseModel):
+    telegram_auth: TelegramAuthConfig = Field(default_factory=TelegramAuthConfig)
+    consult: ConsultConfig = Field(default_factory=ConsultConfig)
     doc_conversion_timeout: float = Field(120.0, ge=5, le=600)
     network_sources: NetworkSourcesConfig = Field(default_factory=NetworkSourcesConfig)
     max_reference_claims: int = Field(default=10,ge=1,le=10)

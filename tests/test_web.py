@@ -145,7 +145,7 @@ def test_default_cli_bind_is_loopback(config):
     from rag_arbiter.cli import main
     with patch("rag_arbiter.cli.Config.load", return_value=config), patch("uvicorn.run") as serve:
         assert main(["web"]) == 0
-    assert serve.call_args.kwargs == {"host": "127.0.0.1", "port": 8765, "workers": 1}
+    assert serve.call_args.kwargs == {"host": "127.0.0.1", "port": 8765, "workers": 1, "proxy_headers": False}
 
 
 def test_cli_network_bind(config):
@@ -349,7 +349,7 @@ def test_system_status_actual_metadata(web):
     client, _, cfg = web
     with patch("rag_arbiter.application.status.OllamaRuntime.request", side_effect=ConnectionError):
         result = client.get("/api/system/status").json()
-    assert result["sqlite"]["schema_version"] == 10 and result["sqlite"]["status"] == "available"
+    assert result["sqlite"]["schema_version"] == 11 and result["sqlite"]["status"] == "available"
     assert result["qdrant"]["mode"] == "Local" and result["docling"]
     assert result["recognition_model"] == cfg.recognition.model
     assert result["runtime_status"]["status"] == "unavailable"
@@ -532,3 +532,14 @@ def test_truncated_recognition_reports_actionable_failure(config):
         assert run["status"] == "FAILED" and run["stage"] == "RECOGNITION"
         assert "max_generation_tokens" in run["last_message"]
         assert runtime.calls == 1  # No unbounded automatic retry.
+
+
+def test_cli_tls_url_and_transport(config, capsys):
+    from rag_arbiter.cli import main
+    config.telegram_auth.tls_certfile = "fixture-cert.pem"
+    config.telegram_auth.tls_keyfile = "fixture-key.pem"
+    with patch("rag_arbiter.cli.Config.load", return_value=config), patch("uvicorn.run") as serve:
+        assert main(["web"]) == 0
+    assert serve.call_args.kwargs["ssl_certfile"] == "fixture-cert.pem"
+    assert serve.call_args.kwargs["ssl_keyfile"] == "fixture-key.pem"
+    assert "https://127.0.0.1:8765" in capsys.readouterr().out

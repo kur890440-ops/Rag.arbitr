@@ -192,7 +192,7 @@ def test_migration_is_additive(tmp_path):
         db.execute('PRAGMA user_version=8')
     store=MetadataStore(path)
     assert store.get('documents','d')=={'untouched':True}
-    assert store.db.execute('PRAGMA user_version').fetchone()[0]==10
+    assert store.db.execute('PRAGMA user_version').fetchone()[0]==11
     assert store.all('chat_sessions')==[];store.close()
 
 

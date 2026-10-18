@@ -40,7 +40,8 @@ class RequestSizeLimit:
             nonlocal received
             message = await receive()
             received += len(message.get("body", b""))
-            if received > self.limit:
+            limit = (min(self.limit, 20000) if self.limit else 20000) if scope.get('path','').startswith('/consult/') else self.limit
+            if limit and received > limit:
                 raise HTTPException(413, "Upload request too large")
             return message
 
@@ -95,13 +96,30 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
         app.state.direct_experiments = DirectExperimentService(app.state.runs)
         from ..application.chat import ChatSessionService
         app.state.chat = ChatSessionService(app.state.runs,app.state.rag)
+        from ..application.consult import ConsultService
+        app.state.consult = ConsultService(app.state.chat)
+        from ..application.auth import AuthService
+        from ..application.telegram_auth import TelegramBot
+        app.state.auth = AuthService(app.state.runs)
+        app.state.consult.auth_guard = app.state.auth.authenticate
+        app.state.telegram = TelegramBot(app.state.auth)
+        telegram_task = asyncio.create_task(app.state.telegram.run())
+        async def clean_visitors():
+            while True:
+                await asyncio.sleep(30)
+                app.state.consult.cleanup()
+
         from ..network.sync import SyncService
-        import asyncio
+        consult_cleanup = asyncio.create_task(clean_visitors())
         app.state.network = SyncService(app.state.runs)
         network_schedule = asyncio.create_task(app.state.network.schedule())
         try:
             yield
         finally:
+            consult_cleanup.cancel()
+            telegram_task.cancel()
+            try:await telegram_task
+            except asyncio.CancelledError:pass
             app.state.network.close()
             network_schedule.cancel()
             try:
@@ -114,8 +132,7 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
     request_limit = config.max_upload_request_size
     if config.max_upload_size and config.max_upload_files:
         request_limit = min(request_limit, config.max_upload_size * config.max_upload_files + 1024 * 1024)
-    if request_limit:
-        app.add_middleware(RequestSizeLimit, limit=request_limit)
+    app.add_middleware(RequestSizeLimit, limit=request_limit)
     allowed_hosts = {"127.0.0.1", "localhost", "[::1]", *config.web_allowed_hosts}
     if config.web_host in {"0.0.0.0", "::"}:
         allowed_hosts.update({socket.gethostname(), socket.getfqdn()})
@@ -126,14 +143,35 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(allowed_hosts))
     app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
     templates = Jinja2Templates(directory=ROOT / "templates")
-    from .markdown import answer_markdown
+    from .markdown import answer_markdown, consult_markdown
     templates.env.filters['answer_markdown'] = answer_markdown
+    templates.env.filters['consult_markdown'] = consult_markdown
 
     @app.middleware("http")
     async def local_boundary(request, call_next):
+        path=request.url.path
+        public_path = path == '/consult' or path.startswith('/consult/') or path.startswith('/static/') or path in ('/users','/api/users') or path.startswith('/api/users/')
+        # Apply the same explicit LAN/VPN allowlist to the whole application.
+        from ipaddress import ip_address, ip_network
+        peer=request.client.host if request.client else ""
+        try: allowed=any(ip_address(peer) in ip_network(n) for n in config.consult.allowed_networks)
+        except ValueError: allowed=peer=="testclient"
+        if not allowed or any(h in request.headers for h in ("forwarded","x-forwarded-for","x-forwarded-host","x-forwarded-proto")):
+            return JSONResponse({"detail":"Consult is restricted to configured LAN/VPN peers; forwarded headers are not accepted"},status_code=403)
+        if not public_path:
+            if config.consult.public_only:
+                return JSONResponse({'detail':'Internal interface is not public'},status_code=403)
+        if public_path and request.method=='POST':
+            try: size=int(request.headers.get('content-length','0'))
+            except ValueError: return JSONResponse({'detail':'Invalid size'},status_code=400)
+            if size>20000:return JSONResponse({'detail':'Вопрос слишком длинный'},status_code=413)
         if request.method in {"POST", "PUT", "DELETE", "PATCH"}:
             origin = request.headers.get("origin")
-            if request.headers.get("x-rag-request") != "1" or (origin and origin != str(request.base_url).rstrip("/")):
+            allowed_origins={str(request.base_url).rstrip('/')}
+            if public_path and config.consult.public_only:
+                # HTTPS termination on the dedicated listener, without trusting forwarded client IPs.
+                allowed_origins.add('https://'+request.url.netloc)
+            if request.headers.get("x-rag-request") != "1" or (origin and origin not in allowed_origins):
                 return JSONResponse({"detail": "Same-origin requests with X-RAG-Request required"}, status_code=403)
             try:
                 size = int(request.headers.get("content-length", "0"))
@@ -141,6 +179,20 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
                 return JSONResponse({"detail": "Invalid content length"}, status_code=400)
             if request_limit and size > request_limit:
                 return JSONResponse({"detail": "Upload request too large"}, status_code=413)
+        from ..application.auth import COOKIE
+        open_auth=path in ('/consult/auth/code','/consult/auth/poll')
+        if not path.startswith('/static/') and not open_auth:
+            try:
+                request.state.user=app.state.auth.authenticate(request.cookies.get(COOKIE))
+                if not (path=='/consult' or path.startswith('/consult/')):
+                    app.state.auth.require_admin(request.state.user)
+            except HTTPException as exc:
+                if path in ('/consult','/') and request.method=='GET' and exc.status_code==401:
+                    if path=='/':
+                        from fastapi.responses import RedirectResponse
+                        return RedirectResponse('/consult',status_code=303)
+                    request.state.user=None
+                else:return JSONResponse({'detail':exc.detail},status_code=exc.status_code)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -165,6 +217,10 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
     def render(request, name, **context):
         return templates.TemplateResponse(request=request, name=name, context={"config": config, **context})
 
+    from .auth import register_auth
+    register_auth(app,render)
+    from .consult import register_consult
+    register_consult(app,render)
     from .chat import register_chat
     register_chat(app,render)
     from .catalog import register_catalog

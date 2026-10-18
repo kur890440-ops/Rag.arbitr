@@ -406,9 +406,13 @@ class RAGComparisonService:
                             finally:r['rerank_duration_ms']=(time.perf_counter()-tick)*1000
                             originals={h['chunk_id']:h for h in cleaned};ranked_hits=[]
                             if len(reranked)!=len(cleaned) or {c.chunk_id for c in reranked}!=set(originals):raise RerankerUnavailable('INVALID_RERANK_OUTPUT')
+                            review=getattr(self,'consult_evidence_review',None) if r.get('public_consult') else None
+                            r['retrieval_stage']='SEMANTIC_REVIEW' if review and reranked else 'RERANK'
+                            admitted=review.select(reranked) if review and reranked else None
+                            r['retrieval_stage']='CONTEXT_BUILD'
                             for c in reranked:
-                                c.accepted=c.rerank_score>=r['rerank_threshold']
-                                c.filter_reason=None if c.accepted else 'BELOW_RERANK_THRESHOLD'
+                                c.accepted=c.chunk_id in admitted if admitted is not None else c.rerank_score>=r['rerank_threshold']
+                                c.filter_reason=('SEMANTIC_EVIDENCE_ACCEPTED' if c.accepted else 'SEMANTIC_EVIDENCE_REJECTED') if admitted is not None else (None if c.accepted else 'BELOW_RERANK_THRESHOLD')
                                 trace.append(c.model_dump(exclude={'text','metadata'}))
                                 if c.accepted:ranked_hits.append({**originals[c.chunk_id],'rerank_score':c.rerank_score,'rerank_rank':c.rerank_rank})
                             r['rerank_output_count']=len(reranked)
@@ -426,7 +430,8 @@ class RAGComparisonService:
                         if pipeline:pipeline.close()
         except RerankerUnavailable:
             error='RERANKER_UNAVAILABLE'
-        except Exception:
+        except Exception as exc:
+            r['retrieval_error_kind']=type(exc).__name__
             error='RETRIEVAL_ERROR'
         finally:
             r['retrieval_duration_ms']=(time.perf_counter()-started)*1000
@@ -440,6 +445,9 @@ class RAGComparisonService:
         selected=selector.select(candidates,r.get('max_context_sources',r['top_k']),budget,RAGContextBuilder(),cfg.context_diversity_penalty)
         builder=RAGContextBuilder()
         context=builder.build(selected,budget)
+        versions={d['document_id']:d.get('recognition_version') for d in (r.get('corpus_snapshot') or {}).get('corpus',{}).get('documents',[])}
+        for source in context['sources']:
+            if versions.get(source['document_id']):source['document_version_id']=versions[source['document_id']]
         r['context_selection_diagnostics']=dict(selection=selector.diagnostics,final_builder=builder.diagnostics)
         r.update(contexts_used=context['used_count'],context_document_ids=sorted({s['document_id'] for s in context['sources']}),
             final_source_ids=[s['source_id'] for s in context['sources']],
@@ -485,12 +493,13 @@ class RAGComparisonService:
                     for name, selected_provider in providers:
                         provider = selected_provider
                         r['active_generation_provider'] = name
-                        branch = {'sources': json.loads(snapshot)['sources']}
+                        branch = {'sources': json.loads(snapshot)['sources'],'retry_output_limit':bool(r.get('public_consult'))}
                         tick = time.perf_counter()
                         session = selected_provider.generation_session() if name == 'local' and hasattr(selected_provider, 'generation_session') else nullcontext()
                         with session:
                             result = grounded_generation(branch,context['text'],generate,CitationBuilder(store),
                                 self.rerankers[provider_key],cfg.llm.claim_support_threshold,progress=progress,
+                                extractive_repair=getattr(self,'consult_evidence_review').repair if r.get('public_consult') and getattr(self,'consult_evidence_review',None) else None,
                                 repair_context_limit=len(context['text'].encode('utf-8'))+cfg.llm.local.repair_reserve if mode!='minimax' else None)
                         if name == 'local' and getattr(selected_provider, 'cleanup_error', None):
                             branch['cleanup_error'] = selected_provider.cleanup_error

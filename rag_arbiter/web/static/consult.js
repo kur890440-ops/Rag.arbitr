@@ -1,0 +1,10 @@
+﻿(()=>{const form=document.querySelector('#consult-form'),input=document.querySelector('#question'),messages=document.querySelector('#messages'),status=document.querySelector('#status'),error=document.querySelector('#error'),button=form.querySelector('button');let pending;
+htmx.config.timeout=Number(form.dataset.timeout);htmx.config.allowEval=false;htmx.config.allowScriptTags=false;
+form.addEventListener('htmx:configRequest',e=>{e.detail.headers['X-RAG-Request']='1';e.detail.parameters.question=input.value.trim();});
+form.addEventListener('htmx:beforeRequest',()=>{button.disabled=true;input.disabled=true;status.textContent='Подготавливаю ответ…';error.hidden=true;pending=document.createElement('article');pending.className='message user';const title=document.createElement('strong');title.textContent='Вы';const body=document.createElement('p');body.textContent=input.value;pending.append(title,body);messages.append(pending);messages.scrollTop=messages.scrollHeight;});
+form.addEventListener('htmx:afterRequest',e=>{button.disabled=false;input.disabled=false;status.textContent='';if(e.detail.successful){input.value='';}else{pending?.remove();let data;try{data=JSON.parse(e.detail.xhr.responseText);}catch(_){}error.textContent=typeof data?.detail==='string'?data.detail:'Не удалось получить ответ. Попробуйте позже.';error.hidden=false;}pending=null;messages.scrollTop=messages.scrollHeight;input.focus();});
+input.addEventListener('input',()=>{error.hidden=true;});
+input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(!e.repeat&&!input.disabled&&input.value.trim())form.requestSubmit();}});messages.scrollTop=messages.scrollHeight;
+})();
+
+(()=>{const leave=()=>location.replace('/consult');document.querySelector('#consult-logout').addEventListener('click',async()=>{await fetch('/consult/auth/logout',{method:'POST',headers:{'X-RAG-Request':'1'}});leave();});setInterval(async()=>{try{const r=await fetch('/consult/auth/session');if(r.status===401||r.status===403)leave();}catch(_){}},5000);})();

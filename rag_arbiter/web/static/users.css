@@ -1,0 +1,11 @@
+﻿.users-page{display:flex;flex-direction:column}
+.users-page .app-header{flex:0 0 48px}
+.users-page .app-header a{color:#f0f8f5}
+.users-page main{flex:1;min-height:0;overflow:auto;padding-top:16px}
+.users-page nav{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0}
+.users-page nav [aria-current=page]{font-weight:700}
+.users-page .table-wrap{overflow-x:auto;background:white;border:1px solid #dce5df;border-radius:6px}
+.users-page table{min-width:1000px;font-size:13px}
+.users-page td:last-child{min-width:245px}
+.users-page td button,.users-page td select{margin:3px;width:auto}
+.users-page #users-error{color:#a32424}

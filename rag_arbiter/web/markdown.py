@@ -7,3 +7,8 @@ _renderer = MarkdownIt('commonmark', {'html': False, 'breaks': True}).enable('ta
 
 def answer_markdown(text):
     return Markup(_renderer.render(str(text or '')))
+
+
+_public_renderer = MarkdownIt('commonmark', {'html': False, 'breaks': True}).enable('table').disable(['image','link','autolink'])
+def consult_markdown(text):
+    return Markup(_public_renderer.render(str(text or '')))
