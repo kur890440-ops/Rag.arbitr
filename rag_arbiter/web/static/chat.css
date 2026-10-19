@@ -23,3 +23,5 @@
 
 .document-review-header{position:sticky;top:-8px;z-index:1;display:flex;justify-content:flex-end;background:#fff;padding:4px 0}
 .document-review-header button{font-size:12px}
+
+#workspace-events{max-width:920px;margin:16px auto;overflow-wrap:anywhere}#workspace-events article{padding:16px;margin:12px 0;background:#fff;border:1px solid #ceded4;border-radius:8px}#workspace-events details{max-height:360px;overflow:auto;margin:8px 0}#workspace-events form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}#workspace-events input,#workspace-events select{max-width:100%}

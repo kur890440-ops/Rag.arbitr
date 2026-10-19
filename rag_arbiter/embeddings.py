@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 from typing import Protocol
 from importlib.metadata import version
 import numpy as np
@@ -18,6 +20,7 @@ class BgeM3EmbeddingProvider:
         os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
         import torch
         from sentence_transformers import SentenceTransformer
+        self._encode_lock = threading.RLock()
         self.config = config
         self.device = "cuda" if config.device == "auto" and torch.cuda.is_available() else config.device
         if self.device == "auto":
@@ -36,6 +39,10 @@ class BgeM3EmbeddingProvider:
                          "device": self.device, "max_seq_length": self.model.max_seq_length}
 
     def encode(self, texts):
+        with self._encode_lock:
+            return self._encode(texts)
+
+    def _encode(self, texts):
         for text in texts:
             if len(self.model.tokenizer.encode(text)) > self.model.max_seq_length:
                 raise ValueError("Embedding input exceeds model capacity; refusing silent truncation")
@@ -82,3 +89,40 @@ class EmbeddingCache:
                 created += 1
                 reused += len(pending[key]) - 1
         return result, created, reused
+
+
+class ApplicationEmbeddingResource:
+    """One lazy embedding model per RunService, not a process-wide singleton.
+
+    SQLite and Qdrant remain operation-owned. Publish only a fully initialized
+    model; a failed load leaves no ready object. A later request may retry once.
+    """
+    def __init__(self, factory=BgeM3EmbeddingProvider):
+        self.factory=factory
+        self._lock=threading.RLock()
+        self._provider=None
+        self._key=None
+        self.initializations=0
+        self.attempts=0
+        self.last_event={}
+
+    def get(self, config):
+        key=(config.model,config.model_revision,config.device,str(config.cache_path.absolute()),config.batch_size)
+        with self._lock:
+            if self._provider is not None and self._key==key:return self._provider
+            # Release previous configuration before loading another large model.
+            self._provider=None;self._key=None
+            import psutil
+            process=psutil.Process();started=time.perf_counter();self.attempts+=1
+            try:
+                candidate=self.factory(config)
+            except Exception as exc:
+                self.last_event=dict(stage='EMBEDDING_INITIALIZATION',status='FAILED',error_type=type(exc).__name__,pid=os.getpid(),duration_ms=(time.perf_counter()-started)*1000)
+                raise
+            self._provider=candidate;self._key=key;self.initializations+=1
+            memory=process.memory_info()
+            self.last_event=dict(stage='EMBEDDING_INITIALIZATION',status='READY',pid=os.getpid(),threads=process.num_threads(),rss=memory.rss,peak_rss=getattr(memory,'peak_wset',None),duration_ms=(time.perf_counter()-started)*1000,initializations=self.initializations,attempts=self.attempts,identity=candidate.identity)
+            return candidate
+
+    def close(self):
+        with self._lock:self._provider=None;self._key=None

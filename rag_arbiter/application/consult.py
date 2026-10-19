@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import dataclass,field
 from datetime import datetime,timezone
 from fastapi import HTTPException
-from ..llm import LLMRequest,LLMResult
+from ..llm import LLMRequest,LLMResult,ProviderNotCalled
 from .chat_models import ChatSession,ChatTurn,ChatMessage,TaskState
 from .dialogue import DialogueWorkingContext,WorkingContextService,AnswerModeRouter,ReferenceResolver,ConsultIntent
 from .retrieval_policy import RetrievalPolicyBuilder
@@ -141,35 +141,42 @@ class ConsultService:
             v.busy=True;self.active+=1
             return v
 
-    def reserve(self,amount):
-        day=datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    def reserve(self,amount,*,enforce_daily=True):
+        day=datetime.now(timezone.utc).strftime('%Y-%m-%d');key=secrets.token_hex(16)
         with self.runs.db() as store,store.db:
             store.db.execute('BEGIN IMMEDIATE')
             old=store.get('consult_usage',day) or {'reserved_tokens':0}
-            if old['reserved_tokens']+amount>self.cfg.daily_token_budget:raise HTTPException(429,'Дневной лимит консультанта исчерпан.')
+            if enforce_daily and old['reserved_tokens']+amount>self.cfg.daily_token_budget:raise HTTPException(429,'Дневной лимит консультанта исчерпан.')
             old['reserved_tokens']+=amount
             store.db.execute('INSERT OR REPLACE INTO consult_usage VALUES (?,?)',(day,json.dumps(old)))
-        return day,amount
+            store.db.execute('INSERT INTO consult_reservations VALUES (?,?)',(key,json.dumps(dict(id=key,day=day,amount=amount,state='RESERVED',created_at=time.time()))))
+        return day,amount,key
+
+    def reservation_state(self,reservation,state,usage=None):
+        """Atomic transitions: only proven NOT_SENT refunds; settlement is idempotent."""
+        day,amount,key=reservation
+        with self.runs.db() as store,store.db:
+            store.db.execute('BEGIN IMMEDIATE');row=store.get('consult_reservations',key)
+            if not row or row['day']!=day or row['amount']!=amount:raise ValueError('RESERVATION_MISMATCH')
+            if row['state'] in ('SETTLED','NOT_SENT'):return row.get('actual')
+            old=store.get('consult_usage',day)
+            valid=lambda n:type(n) is int and n>=0
+            counts=[];usage=usage or {}
+            if valid(usage.get('total_tokens')):counts.append(usage['total_tokens'])
+            if valid(usage.get('prompt_tokens')) and valid(usage.get('completion_tokens')):counts.append(usage['prompt_tokens']+usage['completion_tokens'])
+            if state=='SETTLED' and not counts:state='UNKNOWN_OUTCOME'
+            if state=='SETTLED':
+                actual=max(counts);old['reserved_tokens']=max(0,old['reserved_tokens']-amount+actual)
+                old['actual_tokens']=old.get('actual_tokens',0)+actual;old['settled_calls']=old.get('settled_calls',0)+1;row['actual']=actual
+            elif state=='NOT_SENT':old['reserved_tokens']=max(0,old['reserved_tokens']-amount)
+            elif state not in ('SENT','UNKNOWN_OUTCOME'):raise ValueError('INVALID_RESERVATION_STATE')
+            row.update(state=state,updated_at=time.time())
+            store.db.execute('INSERT OR REPLACE INTO consult_usage VALUES (?,?)',(day,json.dumps(old)))
+            store.db.execute('INSERT OR REPLACE INTO consult_reservations VALUES (?,?)',(key,json.dumps(row)))
+            return row.get('actual')
 
     def settle(self,reservation,usage):
-        # Keep the conservative reservation if the provider did not report a
-        # trustworthy usage count (timeouts/network failures included).
-        counts=[]
-        valid=lambda n:type(n) is int and n>=0
-        if valid(usage.get('total_tokens')):counts.append(usage['total_tokens'])
-        if valid(usage.get('prompt_tokens')) and valid(usage.get('completion_tokens')):
-            counts.append(usage['prompt_tokens']+usage['completion_tokens'])
-        if not counts:return None
-        actual=max(counts);day,amount=reservation
-        with self.runs.db() as store,store.db:
-            store.db.execute('BEGIN IMMEDIATE')
-            old=store.get('consult_usage',day)
-            if old is None:raise ValueError('Missing usage reservation')
-            old['reserved_tokens']=max(0,old['reserved_tokens']-amount+actual)
-            old['actual_tokens']=old.get('actual_tokens',0)+actual
-            old['settled_calls']=old.get('settled_calls',0)+1
-            store.db.execute('INSERT OR REPLACE INTO consult_usage VALUES (?,?)',(day,json.dumps(old)))
-        return actual
+        return self.reservation_state(reservation,'SETTLED',usage)
 
     @staticmethod
     def provider_stage(request):
@@ -184,7 +191,7 @@ class ConsultService:
             if request.question.startswith(prefix):return stage
         return 'STRUCTURED_OR_GENERAL'
 
-    def factory(self,grants,metrics,deadline,session_check=None):
+    def factory(self,grants,metrics,deadline,session_check=None,*,internal_unmetered=False):
         service=self
         def factory(config):
             class BoundedProvider:
@@ -203,21 +210,23 @@ class ConsultService:
                         output_limit=service.cfg.generation_output_tokens if req.context_type=='grounded_rag' else metrics.get('output_budget',service.cfg.max_output_tokens)
                         cfg.max_output_tokens=min(cfg.max_output_tokens,output_limit)
                         cfg.timeout=min(cfg.timeout,remaining)
-                        try:reservation=service.reserve(cost+cfg.max_output_tokens)
+                        try:reservation=service.reserve(cost+cfg.max_output_tokens,enforce_daily=not internal_unmetered)
                         except HTTPException:
                             metrics['limit_error']='COST';raise
                         metrics['calls']+=1;metrics['reserved_tokens']+=cost+cfg.max_output_tokens
                     stage=service.provider_stage(req);call_started=time.monotonic()
+                    service.reservation_state(reservation,'SENT')
                     try:result=service.chat.rag.llm_factory(cfg).generate(req)
                     except Exception as exc:
+                        service.reservation_state(reservation,'NOT_SENT' if isinstance(exc,ProviderNotCalled) else 'UNKNOWN_OUTCOME')
                         with service.lock:
-                            metrics.setdefault('provider_calls',[]).append(dict(stage=stage,status='TECHNICAL_ERROR',duration_ms=round((time.monotonic()-call_started)*1000,2),error_code=type(exc).__name__))
+                            metrics.setdefault('provider_calls',[]).append(dict(stage=stage,status='TECHNICAL_ERROR',duration_ms=round((time.monotonic()-call_started)*1000,2),error_code=exc.code if isinstance(exc,ProviderNotCalled) else type(exc).__name__,admission_status='NOT_SENT' if isinstance(exc,ProviderNotCalled) else 'UNKNOWN_OUTCOME',request_id=reservation[2]))
                         raise
                     duration_ms=round((time.monotonic()-call_started)*1000,2)
-                    actual=service.settle(reservation,result.usage)
+                    actual=service.reservation_state(reservation,'NOT_SENT') if result.diagnostics.get('admission_status')=='NOT_SENT' else service.settle(reservation,result.usage)
                     with service.lock:
                         if actual is not None:metrics['actual_tokens']=metrics.get('actual_tokens',0)+actual
-                        metrics.setdefault('provider_calls',[]).append(dict(stage=stage,status=result.status,duration_ms=duration_ms,finish_reason=result.finish_reason,max_output_tokens=cfg.max_output_tokens,usage=result.usage,error_code=result.error.get('code')))
+                        metrics.setdefault('provider_calls',[]).append(dict(stage=stage,request_id=reservation[2],status=result.status,duration_ms=duration_ms,finish_reason=result.finish_reason,max_output_tokens=cfg.max_output_tokens,usage=result.usage,error_code=result.error.get('code')))
                         durations=metrics.setdefault('stage_durations_ms',{})
                         durations[stage]=round(durations.get(stage,0)+duration_ms,2)
                     if result.status!='SUCCESS':metrics['provider_error']=result.error.get('code',result.status)
@@ -263,7 +272,7 @@ class ConsultService:
             conversation=conversational_reply(question,history)
             intent=(ConsultIntent(mode='GENERAL',question=question,topic='Разговор',reason='Conversational turn')
                     if conversation else router.consult(question,[],DialogueWorkingContext(session_id=v.chat.session_id),titles))
-            if intent.mode!='GENERAL' and history and intent.reference_kind!='NEW_SUBJECT':
+            if intent.mode!='GENERAL' and history and intent.reference_kind not in ('NEW_SUBJECT','EXPLICIT_DOCUMENT'):
                 # Verified facts already occur in working context. Sending the
                 # same long assistant prose twice can exceed the routing budget.
                 routing_history=[m for m in route_history if m['role']=='USER'] if v.context.referents_json else route_history
@@ -280,26 +289,31 @@ class ConsultService:
                 config.full_document_context_budget=self.cfg.exhaustive_input_budget+config.max_output_tokens-5000
                 config.exhaustive_concurrency=2
             reference=None
+            if intent.reference_kind in ('ANAPHORA','CONTRACT_FOLLOWUP','FOLLOWUP_COMPARISON') and not v.context.referents_json:
+                intent.clarification_question='Уточните, к каким документам относится вопрос: предыдущий набор не установлен.'
             # Classify the CURRENT question before resolving references. A prior
             # contract must not turn a new general topic into a document follow-up.
-            if intent.reference_kind not in ('INDEPENDENT','NEW_SUBJECT') and intent.mode in ('DOCUMENT','MIXED') and not intent.clarification_question and v.context.referents_json:
+            if intent.reference_kind not in ('INDEPENDENT','NEW_SUBJECT','EXPLICIT_DOCUMENT') and intent.mode in ('DOCUMENT','MIXED') and not intent.clarification_question and v.context.referents_json:
                 message=ChatMessage(session_id=v.chat.session_id,role='USER',content=question,sequence=len(history)+1)
                 prior=[ChatMessage(session_id=v.chat.session_id,role=m['role'],content=m['text'],sequence=i+1) for i,m in enumerate(history)]
                 reference=ReferenceResolver(factory,config).resolve(message,TaskState(session_id=v.chat.session_id),v.context,prior)
                 metrics['reference_status']=reference.status
                 if reference.status=='RESOLVED' and intent.question==question:
                     intent.question=reference.resolved_message
+            metrics['reference_kind']=intent.reference_kind
+            metrics['scope_partial']=v.context.scope_partial if reference and reference.status=='RESOLVED' else False
             metrics['mode']=intent.mode;metrics['topic']=intent.topic
             metrics.update(question=question,reason=intent.reason,answer_mode='EXHAUSTIVE_NO_RAG' if intent.full_coverage else intent.mode,extraction=intent.extraction)
             # Bind follow-up scope by confirmed IDs, never by a guessed filename.
             if reference is not None and reference.status=='RESOLVED':
-                bound={e['document_id'] for e in v.context.entities_json if e.get('kind')=='CONTRACT' and e.get('document_id') in grants and e.get('document_version_id')==grants[e['document_id']]['recognition_version']}
+                from .dialogue import bound_document_scope
+                bound=bound_document_scope(v.context,grants)
                 if bound:
                     grants={d:g for d,g in grants.items() if d in bound}
                     from .views import ResultsService
                     snapshot=ResultsService(self.runs).restrict_chat_snapshot(snapshot,grants)
                     intent.document_titles=[]
-                elif v.context.entities_json:
+                elif v.context.entities_json or v.context.document_scope:
                     reference.status='UNRESOLVED'
                     metrics['reference_status']='UNRESOLVED'
             metrics['eligible_documents']=len(grants)
@@ -346,6 +360,7 @@ class ConsultService:
                     record['retrieval_policy_json']=policy.model_dump()
                     record['config_snapshot']['llm']=config.model_copy(update={'max_output_tokens':self.cfg.generation_output_tokens}).model_dump(mode='json')
                     record['public_consult']=True
+                    record['correlation_id']=metrics['correlation_id']
                     from .evidence_review import EvidenceReview
                     evidence_review=EvidenceReview(factory,config,intent.question,
                         input_budget=metrics.get('input_budget',self.cfg.input_token_budget),
@@ -429,6 +444,8 @@ class ConsultService:
             text='\n\n'.join(parts)
             turn=ChatTurn(session_id=v.chat.session_id,user_message_id=secrets.token_hex(16),original_question=question,task_state_version=0,owner_pid=0,owner_started=0,assistant_message_id=secrets.token_hex(16))
             turn.citations_json=citations;turn.grounding_status=grounding
+            turn.trace['reference_resolution_json']=reference.model_dump() if reference else {}
+            turn.trace['scope_partial']=bool(record and (record.get('consult_partial') or record.get('exhaustive',{}).get('answer_completeness')=='PARTIAL'))
             v.context=WorkingContextService.update(v.context,turn,claims)
             if record and not record.get('contract_extraction') and (reference is None or reference.status=='NOT_NEEDED'):
                 # A fresh document topic must not inherit old contract-ID anchors.
@@ -461,13 +478,15 @@ class ConsultService:
         except HTTPException:raise
         except Exception as exc:
             metrics['error_type']=type(exc).__name__
+            from .failure_diagnostics import capture
+            metrics['failure']=capture(self.runs,exc,metrics.get('correlation_id'),'/consult',metrics)
             if metrics.get('limit_error'):
                 code,message={'INPUT':(413,'Контекст слишком велик. Уточните вопрос или начните новый диалог.'),
                     'TIMEOUT':(504,'Время ожидания ответа истекло. Попробуйте позже.'),
                     'CALLS':(429,'Достигнут лимит анализа одного вопроса. Уточните или сузьте вопрос.'),
                     'COST':(429,'Дневной лимит консультанта исчерпан.')}[metrics['limit_error']]
                 raise HTTPException(code,message) from None
-            raise HTTPException(503,'Не удалось подготовить подтверждённый ответ. Попробуйте позже или уточните вопрос.') from None
+            raise HTTPException(503,'Техническая ошибка '+metrics['failure']['category']+'. Код диагностики: '+metrics['failure']['correlation_id']) from None
         finally:
             metrics['latency_ms']=round((time.monotonic()-started)*1000)
             from .diagnostic_trace import record as trace_record

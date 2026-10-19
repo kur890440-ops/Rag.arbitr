@@ -4,7 +4,7 @@ import sqlite3
 
 class MetadataStore:
     """SQLite is canonical for text and metadata; vectors live only in Qdrant/cache."""
-    TABLES = ("public_document_grants", "consult_usage", "document_versions", "document_version_contents", "document_version_indexes", "document_reviews", "documents", "document_pages", "document_blocks", "chunks", "corpora",
+    TABLES = ("consult_reservations", "workspace_tasks", "workspace_files", "workspace_revisions", "workspace_diffs", "workspace_validations", "workspace_proposals", "workspace_publications", "public_document_grants", "consult_usage", "document_versions", "document_version_contents", "document_version_indexes", "document_reviews", "documents", "document_pages", "document_blocks", "chunks", "corpora",
               "corpus_documents", "index_runs", "embeddings_metadata", "evaluation_queries",
               "evaluation_runs", "retrieval_results", "recognition_metadata", "processing_runs",
               "processing_run_errors", "uploads", "recognition_cache", "chunk_settings", "normalized_documents",
@@ -21,7 +21,7 @@ class MetadataStore:
             raise ValueError("Unsupported database schema")
         for table in self.TABLES:
             self.db.execute(f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)))")
-        for table in ('document_versions','document_version_contents'):
+        for table in ('document_versions','document_version_contents','workspace_proposals','workspace_revisions'):
             for action in ('UPDATE','DELETE'):
                 self.db.execute(f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'Immutable document version'); END")
             self.db.execute(f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_insert BEFORE INSERT ON {table} WHEN EXISTS(SELECT 1 FROM {table} WHERE id=NEW.id) BEGIN SELECT RAISE(IGNORE); END")

@@ -233,3 +233,13 @@ def test_cloud_request_diagnostics_preserve_numeric_reasoning_usage():
     assert result.diagnostics==dict(max_output_tokens=16384,timeout=240)
     assert result.usage['reasoning_tokens']==12000 and result.status=='TRUNCATED'
     assert result.request_count==1
+
+
+def test_retrieval_trace_uses_request_correlation(ragweb):
+    c,rid,_,_=ragweb;svc=c.app.state.rag
+    record=svc.prepare(rid,question='q');record['correlation_id']='safe-request-123';svc.put(record)
+    with patch('rag_arbiter.application.rag.SemanticRetriever.retrieve_vector',side_effect=RuntimeError('must stay private')):
+        result=svc.execute(record['comparison_run_id'])
+    assert result['failure']['correlation_id']=='safe-request-123'
+    assert result['failure']['category']=='RETRIEVAL_ERROR'
+    assert 'must stay private' not in json.dumps(result)

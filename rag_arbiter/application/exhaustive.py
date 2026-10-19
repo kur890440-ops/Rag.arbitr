@@ -3,6 +3,8 @@ import json
 import hashlib
 import re
 import time
+import uuid
+from .provider_failures import category as failure_category
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydantic import BaseModel, Field, StrictBool
@@ -77,7 +79,7 @@ def compare_conditions(merged, document_ids):
     for finding in merged:
         for e in finding['evidence']:
             c=e.get('condition')
-            if not c or c.get('value') is None or c.get('unit') is None:continue
+            if not c or any(c.get(k) is None for k in ('value','unit','period','applicable_role')):continue
             key=(normalized(c['condition_type']),normalized(c['applicable_role']),condition_period(c['period']))
             row=groups.setdefault(key,dict(condition_type=c['condition_type'],applicable_role=c['applicable_role'],normalized_period=condition_period(c['period']),documents={}))
             value=dict(**c,reference=finding['reference'],document_version_id=e.get('document_version_id'),block_id=e['block_id'])
@@ -205,8 +207,8 @@ class ContractCondition(BaseModel):
     condition_type: str
     value: str | None = None
     unit: str | None = None
-    period: str
-    applicable_role: str
+    period: str | None = None
+    applicable_role: str | None = None
 
 
 class SelectedSpan(BaseModel):
@@ -298,6 +300,7 @@ class ExhaustiveContextBatcher:
         return LLMRequest(question=MAP_PROMPT+'\nQUESTION:\n'+self.question+'\nUNITS:\n'+canonical(content))
 
     def fits(self,units):
+        if self.config.exhaustive_max_units_per_batch and len(units)>self.config.exhaustive_max_units_per_batch:return False
         return estimate(self.request(units))+self.config.max_output_tokens<=self.config.full_document_context_budget
 
     def build(self,documents):
@@ -459,11 +462,21 @@ class ExhaustiveNoRAG:
             metrics.update(documents_total=len(docs),pages_total=sum(d['page_count'] for d in docs),batches_total=len(batches))
             progress()
             def extract(batch):
-                cachekey=hash_value([hash_value(record['question_text']),batch.content_hash,cfg.model_dump(exclude={'exhaustive_synthesis_budget'}),MAP_VERSION,batch.normalization_version,BASE_SYSTEM])
-                if record.get('public_consult'):cachekey=hash_value([cachekey,record['comparison_run_id']])
+                basekey=hash_value([hash_value(record['question_text']),batch.content_hash,cfg.model_dump(exclude={'exhaustive_synthesis_budget'}),MAP_VERSION,batch.normalization_version,BASE_SYSTEM])
+                # Cache independent map output by exact canonical request, not
+                # a transient run ID. ACL/version filtering occurs before build;
+                # semantic evidence review still runs for the current question.
+                cachekey=hash_value([basekey,batcher.request(batch.units).model_dump()])
                 rowkey=record['comparison_run_id']+':'+batch.batch_id
                 with self.runs.db() as store:
                     cached=store.get('exhaustive_map_cache',cachekey)
+                    if not cached and record.get('public_consult'):
+                        # Read-only compatibility with earlier per-run keys. All
+                        # request-affecting flags and the exact base key match.
+                        for old in store.all('rag_comparison_runs'):
+                            if old.get('question_text')!=record['question_text'] or not old.get('public_consult') or bool(old.get('contract_extraction'))!=bool(record.get('contract_extraction')):continue
+                            candidate=store.get('exhaustive_map_cache',hash_value([basekey,old['comparison_run_id']]))
+                            if candidate and candidate.get('status')=='SUCCESS':cached=candidate;break
                     if not cached:
                         # Recover a completed result even after a crash between
                         # its durable commit and publication to the cache table.
@@ -483,8 +496,15 @@ class ExhaustiveNoRAG:
                         if attempt and stats['attempts'][-1]['status']=='INVALID_EXTRACTION' and not record.get('contract_extraction'):
                             repair,quotes=referenced_retry(batcher,batch)
                             if repair:request=repair
-                        try:response=provider.generate(request)
-                        except Exception:response=LLMResult(model=cfg.model,error={'code':'GENERATION_ERROR'})
+                        attempt_id=uuid.uuid4().hex
+                        diagnostic=dict(request_id=attempt_id,attempt_id=attempt_id,batch_id=batch.batch_id,document_ids=batch.document_ids,version_ids=sorted({u.document_version_id for u in batch.units if u.document_version_id}),stage='EXTRACTION',input_bytes=len(request.question.encode('utf-8')),output_limit=cfg.max_output_tokens)
+                        try:
+                            response=provider.generate(request)
+                            diagnostic.update(admission_status=response.diagnostics.get('admission_status','SENT'),provider_status=response.status,validation_status='PENDING')
+                        except Exception as exc:
+                            code=failure_category(exc)
+                            diagnostic.update(admission_status='NOT_SENT' if code=='ADMISSION_REJECTED' else 'UNKNOWN_OUTCOME',provider_status='PROVIDER_NOT_CALLED' if code=='ADMISSION_REJECTED' else code,exception_category=code,exception_type=type(exc).__name__,validation_status='NOT_RUN')
+                            response=LLMResult(model=cfg.model,error={'code':code},diagnostics=diagnostic)
                         stats['calls']+=1;stats['requests']+=response.request_count
                         stats['input_tokens']+=response.usage.get('prompt_tokens',0);stats['output_tokens']+=response.usage.get('completion_tokens',0)
                         code=response.error.get('code',response.status)
@@ -498,7 +518,9 @@ class ExhaustiveNoRAG:
                             except Exception as exc:
                                 code='INVALID_EXTRACTION'
                                 response.error={'code':code,'reason':str(exc) if isinstance(exc,ValueError) and str(exc) in ('INVALID_EVIDENCE','INCONSISTENT_RELEVANCE','UNSUPPORTED_CONTRACT_FIELD','MISSING_EVIDENCE','UNSUPPORTED_PARTY','UNSUPPORTED_PARTY_ROLE','INVALID_ITEM_SCHEMA','EVIDENCE_VERSION_MISMATCH') else 'INVALID_SCHEMA'}
-                        stats['attempts'].append(dict(status=code,error=response.error,raw_safe=response.text,evidence_mode='reference_v2' if quotes else 'quotation'))
+                        diagnostic['failure_category']=None if code=='SUCCESS' else 'OUTPUT_TRUNCATED' if code=='OUTPUT_LIMIT' or response.status=='TRUNCATED' else 'INVALID_EVIDENCE' if response.error.get('reason') in ('INVALID_EVIDENCE','EVIDENCE_VERSION_MISMATCH','MISSING_EVIDENCE') else 'INVALID_MODEL_RESPONSE' if code=='INVALID_EXTRACTION' else code
+                        diagnostic['validation_status']='PASS' if code=='SUCCESS' else 'INVALID_MODEL_RESPONSE' if code=='INVALID_EXTRACTION' else diagnostic.get('validation_status','NOT_RUN')
+                        stats['attempts'].append(dict(status=code,diagnostic=diagnostic,error=response.error,raw_safe=response.text,evidence_mode='reference_v2' if quotes else 'quotation'))
                         with self.runs.db() as store:
                             store.put('exhaustive_batch_results',rowkey,dict(result=result.model_dump(),stats=stats,cache_key=cachekey))
                         if code=='SUCCESS':break

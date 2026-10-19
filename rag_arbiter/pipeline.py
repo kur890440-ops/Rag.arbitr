@@ -15,7 +15,9 @@ from .progress import ConsoleReporter
 
 
 class Pipeline:
-    def __init__(self, config, provider=None, ocr=None, reporter=None):
+    def __init__(self, config, provider=None, ocr=None, reporter=None, embedding_resource=None):
+        self.embedding_resource = embedding_resource
+        self.resource_stage = None
         self.config = config
         config.prepare()
         self.store = MetadataStore(config.sqlite_path)
@@ -72,9 +74,12 @@ class Pipeline:
     def resources(self):
         self.reporter.check()
         if self.provider is None:
-            self.provider = BgeM3EmbeddingProvider(self.config)
+            self.resource_stage = 'EMBEDDING_INITIALIZATION'
+            self.provider = self.embedding_resource.get(self.config) if self.embedding_resource is not None else BgeM3EmbeddingProvider(self.config)
         if self.vectors is None:
+            self.resource_stage = 'VECTOR_STORE_OPEN'
             self.vectors = LocalVectorStore(self.config.qdrant_path)
+        self.resource_stage = 'READY'
 
     def build_index(self, docs, snapshot, strategy):
         self.reporter.emit("stage_started", f"{strategy.upper()}_CHUNKING", f"{strategy}: разбиение")

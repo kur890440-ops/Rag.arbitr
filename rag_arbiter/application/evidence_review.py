@@ -7,7 +7,7 @@ import json
 from typing import Literal
 from ..llm import LLMRequest
 from pydantic import BaseModel, ConfigDict, Field
-from .dialogue import structured
+from .dialogue import structured, StructuredProviderError
 
 
 class Decision(BaseModel):
@@ -84,10 +84,20 @@ class EvidenceReview:
         batches=self.batches(stage,items)
         for batch in batches:
             try:
-                accepted.update(self.check_batch(stage,batch,allow_partial=allow_partial))
+                try:
+                    accepted.update(self.check_batch(stage,batch,allow_partial=allow_partial))
+                except StructuredProviderError as exc:
+                    if exc.code!='OUTPUT_TRUNCATED' or len(batch)<2:raise
+                    # One bounded recovery: retry only this failed packet in two
+                    # smaller packets. Never replay successful review packets.
+                    self.trace.append(dict(stage=stage,error_code='OUTPUT_TRUNCATED',retry='SPLIT_ONCE',item_ids=[i['id'] for i in batch]))
+                    middle=len(batch)//2
+                    accepted.update(self.check_batch(stage,batch[:middle],allow_partial=allow_partial))
+                    accepted.update(self.check_batch(stage,batch[middle:],allow_partial=allow_partial))
             except Exception as exc:
                 known={'INVALID_EVIDENCE_REVIEW_IDS','INVALID_REVIEW_EVIDENCE_REF'}
-                code=str(exc) if type(exc) is ValueError and str(exc) in known else 'EVIDENCE_REVIEW_INVALID_RESPONSE'
+                from .provider_failures import category
+                code=str(exc) if type(exc) is ValueError and str(exc) in known else category(exc)
                 self.trace.append(dict(stage=stage,batch=len(self.trace)+1,error_code=code,error_kind=type(exc).__name__,rejected_ids=[item['id'] for item in batch]))
                 if not allow_partial:raise
         return accepted
@@ -120,8 +130,12 @@ class EvidenceReview:
         return self.check('SELECT', [dict(id=c.chunk_id, texts=[c.text]) for c in candidates])
 
     def validate(self, claims, citations):
-        items = [dict(id=c['claim_id'], claim=c['text'], texts=[q['quote'] for q in citations
-                 if q['claim_id'] == c['claim_id'] and q.get('exact_match')]) for c in claims]
+        items=[]
+        for claim in claims:
+            quotes=[q for q in citations if q['claim_id']==claim['claim_id'] and q.get('exact_match')]
+            relation={k:claim[k] for k in ('subject','predicate','object','subject_role') if claim.get(k)}
+            text=claim['text']+(' '+json.dumps(relation,ensure_ascii=False) if relation else '')
+            items.append(dict(id=claim['claim_id'],claim=text,texts=[q['quote'] for q in quotes],sources=[dict(document_id=q.get('document_id'),document_version_id=q.get('document_version_id'),title=q.get('file_title')) for q in quotes]))
         return self.check('CLAIMS', items)
 
 

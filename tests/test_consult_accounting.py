@@ -47,7 +47,8 @@ def test_previous_day_settles_on_original_day(accounting):
     s=accounting
     with s.runs.db() as db:db.put('consult_usage','2000-01-01',dict(reserved_tokens=500))
     today=s.reserve(100)
-    s.settle(('2000-01-01',500),dict(total_tokens=75))
+    with s.runs.db() as db:db.put('consult_reservations','historic',dict(id='historic',day='2000-01-01',amount=500,state='RESERVED'))
+    s.settle(('2000-01-01',500,'historic'),dict(total_tokens=75))
     assert used(s,'2000-01-01')==75 and used(s,today[0])==100
 
 def test_provider_wrapper_settles_actual_usage(accounting):
@@ -79,3 +80,32 @@ def test_generation_budget_and_recovered_limit_accounting(accounting):
     assert metrics['actual_tokens']==60 and 'provider_error' not in metrics
     assert metrics['provider_calls'][1]['finish_reason']=='length'
     assert metrics['provider_calls'][2]['status']=='SUCCESS'
+
+
+def test_exactly_once_refund_and_settlement(accounting):
+    s=accounting;r=s.reserve(100)
+    s.reservation_state(r,'SENT')
+    with ThreadPoolExecutor(max_workers=4) as pool:list(pool.map(lambda _:s.reservation_state(r,'NOT_SENT'),range(8)))
+    assert used(s,r[0])==0
+    assert s.settle(r,dict(total_tokens=50)) is None
+    r=s.reserve(100)
+    with ThreadPoolExecutor(max_workers=4) as pool:list(pool.map(lambda _:s.settle(r,dict(total_tokens=30)),range(8)))
+    assert used(s,r[0])==30
+
+def test_proven_not_sent_refunded_unknown_exception_retained(accounting):
+    from rag_arbiter.llm import ProviderNotCalled
+    s=accounting
+    for error,expected in [(ProviderNotCalled(),0),(TimeoutError(),None)]:
+        def generate(request):raise error
+        s.chat=SimpleNamespace(rag=SimpleNamespace(llm_factory=lambda config:SimpleNamespace(generate=generate)))
+        metrics=dict(calls=0,reserved_tokens=0)
+        with pytest.raises(type(error)):s.factory({},metrics,time.monotonic()+30)(s.runs.config.llm).generate(LLMRequest(question='synthetic'))
+        with s.runs.db() as db:
+            value=sum(row['reserved_tokens'] for row in db.all('consult_usage'))
+            assert value==0 if expected==0 else value>0
+
+def test_internal_policy_does_not_disable_client_daily_limit(accounting):
+    s=accounting;s.cfg.daily_token_budget=1
+    with pytest.raises(HTTPException):s.reserve(100)
+    r=s.reserve(100,enforce_daily=False);s.settle(r,dict(total_tokens=10))
+    with pytest.raises(HTTPException):s.reserve(1)

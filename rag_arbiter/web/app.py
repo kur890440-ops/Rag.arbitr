@@ -112,6 +112,10 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
         from ..network.sync import SyncService
         consult_cleanup = asyncio.create_task(clean_visitors())
         app.state.network = SyncService(app.state.runs)
+        from ..application.document_workspace import WorkspaceService
+        app.state.workspace = WorkspaceService(app.state.runs,app.state.auth,app.state.consult.knowledge,app.state.rag,app.state.network)
+        app.state.chat.workspace = app.state.workspace
+        app.state.chat.workspace_budget = app.state.consult
         network_schedule = asyncio.create_task(app.state.network.schedule())
         try:
             yield
@@ -221,6 +225,8 @@ def create_app(config=None, pipeline_factory=Pipeline, llm_factory=MiniMaxLLMPro
     register_auth(app,render)
     from .consult import register_consult
     register_consult(app,render)
+    from .document_workspace import register_workspace
+    register_workspace(app,render)
     from .chat import register_chat
     register_chat(app,render)
     from .catalog import register_catalog

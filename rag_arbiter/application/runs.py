@@ -138,6 +138,10 @@ class RunService:
     """Shared CLI/Web application boundary. A single background worker; DB is truth."""
     def __init__(self, config, pipeline_factory=Pipeline):
         self.config, self.pipeline_factory = config, pipeline_factory
+        from ..embeddings import ApplicationEmbeddingResource
+        self.embedding_resource=ApplicationEmbeddingResource()
+        if pipeline_factory is Pipeline:
+            self.pipeline_factory=lambda cfg, **kwargs: Pipeline(cfg,embedding_resource=self.embedding_resource,**kwargs)
         config.prepare()
         config.web_data_path.mkdir(parents=True, exist_ok=True)
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="day21")
@@ -322,3 +326,4 @@ class RunService:
             if self.get(run_id)["status"] not in TERMINAL:
                 signal.set()
         self.executor.shutdown(wait=True)
+        self.embedding_resource.close()

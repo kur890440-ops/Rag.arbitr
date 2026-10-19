@@ -376,7 +376,10 @@ class RAGComparisonService:
                                     pipeline.config = previous_config
                         else:
                             pipeline.validate_current_corpus(ResultsService(self.runs).snapshot(r['processing_run_id']))
+                        r['retrieval_stage']='EMBEDDING_INITIALIZATION'
                         pipeline.resources()
+                        r['embedding_initialization']=dict(getattr(getattr(self.runs,'embedding_resource',None),'last_event',{}))
+                        r['retrieval_stage']='VECTOR_RETRIEVAL'
                         policy=RetrievalPolicy.model_validate(r['retrieval_policy_json']) if r.get('retrieval_policy_json') else None
                         if policy:sync_payload(pipeline.vectors,index,policy.document_metadata)
                         vector_started=time.perf_counter()
@@ -432,6 +435,10 @@ class RAGComparisonService:
             error='RERANKER_UNAVAILABLE'
         except Exception as exc:
             r['retrieval_error_kind']=type(exc).__name__
+            if pipeline is not None and getattr(pipeline,'resource_stage',None) in ('EMBEDDING_INITIALIZATION','VECTOR_STORE_OPEN'):r['retrieval_stage']=pipeline.resource_stage
+            from .failure_diagnostics import capture
+            try:r['failure']=capture(self.runs,exc,r.get('correlation_id') or r.get('comparison_run_id'),'/rag/retrieval',{'retrieval':{'result_status':'RETRIEVAL_ERROR'},'stage':r.get('retrieval_stage')})
+            except Exception:r['failure']={'category':'RETRIEVAL_ERROR','diagnostic_capture':'FAILED'}
             error='RETRIEVAL_ERROR'
         finally:
             r['retrieval_duration_ms']=(time.perf_counter()-started)*1000

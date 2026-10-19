@@ -115,19 +115,19 @@ def test_structured_intent_and_inconsistent_route(full):
     assert result.answer_mode==body['answer_mode']
     if full:
         body['answer_mode']='POINT_RAG'
-        with pytest.raises(ValueError):QuestionIntent(**body)
+        assert QuestionIntent(**body).answer_mode=='EXHAUSTIVE_NO_RAG'
         result=AnswerModeRouter(provider(body),LLMConfig()).route('q',TaskState(session_id='s'),ref,policy())
-        assert result.question_type=='UNCERTAIN' and result.confidence==0
+        assert result.question_type=='FREQUENCY' and result.answer_mode=='EXHAUSTIVE_NO_RAG' and result.requires_full_coverage
 
 
 def test_exhaustive_filters_before_document_loading(ragweb):
     client,rid,_,_=ragweb;runs=client.app.state.runs
     p=policy(constraint('only','DOCUMENT_TYPE_INCLUDE',['COURT_RULING']),constraint('exclude','DOCUMENT_TYPE_EXCLUDE',['COMPLAINT']))
-    entries=[dict(document_id=k) for k in p.corpus_document_ids]
+    entries=[dict(document_id=k,recognition_version='pinned-v1') for k in p.corpus_document_ids]
     with runs.db() as db:db.put('documents','court',dict(document_id='court'))
     with patch('rag_arbiter.application.exhaustive.ResultsService.snapshot',return_value={'corpus':{'documents':entries}}),patch(
         'rag_arbiter.application.exhaustive.FullDocumentContextBuilder.build',return_value={'status':'READY'}) as load:
-        assert ExhaustiveNoRAG(runs,None).load(rid,None,p)==[{'document_id':'court'}]
+        assert ExhaustiveNoRAG(runs,None).load(rid,None,p)==[{'document_id':'court','document_version_id':'pinned-v1'}]
         assert load.call_count==1 and load.call_args.args[1]=='court'
     with patch('rag_arbiter.application.exhaustive.ResultsService.snapshot',return_value={'corpus':{'documents':[]}}):
         with pytest.raises(ValueError,match='POLICY_SCOPE_INCOMPLETE'):ExhaustiveNoRAG(runs,None).load(rid,None,p)

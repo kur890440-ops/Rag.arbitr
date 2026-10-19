@@ -126,7 +126,7 @@ def register_chat(app,render):
 
     @app.post('/api/chat/sessions/{sid}/messages',status_code=202)
     def send_message(request:Request,sid:str,body:SendChat):
-        return request.app.state.chat.start(sid,body.content,body.expected_version,body.expected_scope_version).model_dump()
+        return request.app.state.chat.start(sid,body.content,body.expected_version,body.expected_scope_version,actor=request.state.user).model_dump()
 
     @app.patch('/api/chat/sessions/{sid}/memory')
     def edit_memory(request:Request,sid:str,body:EditMemory):

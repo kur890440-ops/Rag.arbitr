@@ -124,7 +124,7 @@ def test_consult_three_turn_scope_and_compact_contract_referents(ragweb,monkeypa
  from rag_arbiter.application.exhaustive import ExhaustiveNoRAG
  c,_,llm,_=ragweb;s,_=internal(c,llm);_,grants=s.knowledge.snapshot();did=next(iter(grants));g=grants[did]
  def route(self,q,history,context,titles):
-  return ConsultIntent(reference_kind='NEW_SUBJECT' if q=='fresh' else 'ANAPHORA',mode='DOCUMENT',question=q,topic='стороны договоров',full_coverage=True,extraction='CONTRACT_PARTIES' if q=='parties' else 'FACTS')
+  return ConsultIntent(reference_kind='NEW_SUBJECT' if q=='fresh' else 'INDEPENDENT' if q=='parties' else 'ANAPHORA',mode='DOCUMENT',question=q,topic='стороны договоров',full_coverage=True,extraction='CONTRACT_PARTIES' if q=='parties' else 'FACTS')
  monkeypatch.setattr(AnswerModeRouter,'consult',route)
  references=[]
  def resolve(self,message,state,context,history):

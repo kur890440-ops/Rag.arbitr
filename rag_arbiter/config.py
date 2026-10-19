@@ -104,7 +104,18 @@ class TelegramAuthConfig(BaseModel):
     tls_keyfile: str | None = None
 
 
+class WorkspaceConfig(BaseModel):
+    prototype_unmetered: bool = False
+    publication_roots: list[str] = Field(default_factory=list)
+    max_tool_calls: int = Field(12, ge=1, le=24)
+    timeout: float = Field(1800, ge=10, le=1800)
+    max_provider_calls: int = Field(128, ge=1, le=256)
+    approval_ttl: int = Field(900, ge=30, le=3600)
+    max_file_bytes: int = Field(20 * 1024 * 1024, ge=1024)
+
+
 class Config(BaseModel):
+    workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     telegram_auth: TelegramAuthConfig = Field(default_factory=TelegramAuthConfig)
     consult: ConsultConfig = Field(default_factory=ConsultConfig)
     doc_conversion_timeout: float = Field(120.0, ge=5, le=600)

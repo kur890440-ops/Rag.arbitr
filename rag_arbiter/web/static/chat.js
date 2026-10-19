@@ -185,6 +185,7 @@ async function refresh(){const s=state();if(!s||refreshing)return;refreshing=tru
  const follow=atBottom(),position=scroller().scrollTop;let added=0;
  for(const message of parsed.querySelectorAll('.chat-message')){if(!document.getElementById(message.id)){$('#chat-messages').append(message);added++;}}
  for(const key of ['version','busy','title'])s[key]=fresh.dataset[key];$('#chat-title').textContent=s.title;const historyLink=document.querySelector('.chat-session[href="/chat?session_id='+s.session+'"]');if(historyLink?.firstChild?.nodeType===3)historyLink.firstChild.textContent=s.title;
+ const workspace=parsed.querySelector('#workspace-events');if(workspace&&!$('#workspace-events')){scroller().append(workspace);window.htmx?.process(workspace);}
  const progress=parsed.querySelector('#chat-progress-area');if(progress&&progress.innerHTML!==$('#chat-progress-area').innerHTML)$('#chat-progress-area').innerHTML=progress.innerHTML;
  patchMemory(parsed);if(follow)bottom();else{scroller().scrollTop=position;if(added)$('#chat-new-messages').hidden=false;}sync();if(added===40)timer=setTimeout(refresh,10);
  }catch(e){error(e);timer=setTimeout(refresh,3000);}finally{refreshing=false;}}

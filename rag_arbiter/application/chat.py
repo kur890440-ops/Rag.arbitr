@@ -143,7 +143,7 @@ class ChatSessionService:
                 self.write(store, 'chat_discovery_decisions', key, decision)
         return session
 
-    def start(self,sid,content,expected_version,expected_scope_version=None):
+    def start(self,sid,content,expected_version,expected_scope_version=None,actor=None):
         if not isinstance(content,str) or not content.strip() or len(content)>1500:
             raise ChatValidationError('Введите сообщение длиной 1–1500 символов.')
         with self.runs.db() as store,store.db:
@@ -160,6 +160,7 @@ class ChatSessionService:
             m=ChatMessage(session_id=sid,role='USER',content=content.strip(),sequence=seq)
             t=ChatTurn(session_id=sid,user_message_id=m.message_id,original_question=m.content,task_state_version=state.version,
                 owner_pid=os.getpid(),owner_started=psutil.Process().create_time(),trace={'task_state_before':state.model_dump(), 'source_selection': {k:session.get(k, default) for k,default in [('source_scope','ALL_DOCUMENTS'),('source_id',None),('scope_version',0),('document_id',None),('document_name',None),('selected_document_ids',[])]}})
+            if actor:t.trace.update(actor_id=actor['id'],actor_role=actor['role'])
             self.write(store,'chat_messages',m.message_id,m)
             self.write(store,'chat_turns',t.turn_id,t)
             if seq==1:session['title']=m.content[:70]
@@ -182,6 +183,29 @@ class ChatSessionService:
             t.trace.setdefault('stages',[]).append(dict(stage=stage,elapsed_ms=(time.perf_counter()-started)*1000))
             with self.runs.db() as store:store.put('chat_turns',tid,t.model_dump())
         try:
+            from .document_workspace import explicit_file_goal
+            if explicit_file_goal(t.original_question):
+                if not hasattr(self,'workspace') or not t.trace.get('actor_id'):raise ChatValidationError('Authenticated file workflow required')
+                save('workspace')
+                ws=self.workspace;user=ws.actor({'id':t.trace['actor_id']});ws.auth.require_admin(user)
+                metrics=dict(calls=0,reserved_tokens=0,max_calls=ws.cfg.max_provider_calls,input_budget=64000,output_budget=8192)
+                deadline=time.monotonic()+ws.cfg.timeout;metrics['deadline']=deadline
+                factory=self.workspace_budget.factory({},metrics,deadline,lambda:ws.auth.require_admin(ws.actor(user)),internal_unmetered=ws.cfg.prototype_unmetered)
+                config=self.runs.config.llm.model_copy(deep=True);config.full_document_context_budget=67000;config.exhaustive_concurrency=2;config.exhaustive_max_units_per_batch=32
+                with self.runs.db() as db:
+                    resumable=[x for x in db.all('workspace_tasks') if x['owner_id']==user['id'] and x.get('session_id')==t.session_id and x['goal']==t.original_question and x['status'] in ('FAILED','PARTIAL') and not x['cancelled'] and x.get('attempt_count',1)<2]
+                resume=max(resumable,key=lambda x:x['created_at'])['id'] if resumable else None
+                task=ws.execute_goal(user,t.original_question,factory,config,session_id=t.session_id,resume_task_id=resume)
+                t.trace.update(workspace_task_id=task['id'],workspace_metrics={k:v for k,v in metrics.items() if k!='deadline'})
+                t.status='COMPLETED' if task['status'] in ('COMPLETED','PARTIAL') else 'FAILED';t.grounding_status='NOT_APPLICABLE'
+                if task.get('analysis',{}).get('comparison_run_id'):
+                    t.comparison_run_id=task['analysis']['comparison_run_id']
+                    with self.runs.db() as db:
+                        record=db.get('rag_comparison_runs',t.comparison_run_id) or {}
+                        t.trace['canonical_document_scope']=WorkingContextService.canonical_scope(db,record)
+                    t.grounding_status='PARTIAL'
+                t.response=ChatResponse(answer_text='Работа с файлами: '+task['status']+'. Файлов: '+str(len(task['files']))+'. Результаты и ограничения — в карточке задачи.',task_state_version=t.task_state_version,resolved_question=t.original_question,status='SUCCESS')
+                return self.finish(t,started)
             save('memory')
             data=self.load(t.session_id)
             state=TaskState.model_validate(data['task_state'])
@@ -294,6 +318,17 @@ class ChatSessionService:
                 candidate_prior_claim_ids=reference.candidate_prior_claim_ids)
             if reference.status=='UNRESOLVED' or reference.confidence<0.6:
                 return self.clarify(t,started,'Уточните, какие ранее перечисленные факты вы имеете в виду. Не удалось надёжно разрешить ссылку в вопросе.','REFERENCE_UNRESOLVED')
+            if reference.status=='RESOLVED' and working.document_scope:
+                versions={d['document_id']:d.get('recognition_version') for d in snapshot['corpus']['documents']}
+                scoped={r['document_id'] for r in working.document_scope if versions.get(r['document_id'])==r['document_version_id']}
+                policy.eligible_document_ids=[d for d in policy.eligible_document_ids if d in scoped]
+                policy.source_document_ids=list(policy.eligible_document_ids)
+                if not policy.eligible_document_ids:
+                    return self.clarify(t,started,'Предыдущий набор документов недоступен в текущей области.','REFERENCE_SCOPE_UNAVAILABLE')
+                snapshot=ResultsService(self.runs).restrict_chat_snapshot(snapshot,policy.eligible_document_ids)
+                data['corpus_snapshot']=snapshot
+                data['effective_run_id']=next(iter(snapshot['document_runs'].values()),data['effective_run_id'])
+                t.trace.update(eligible_document_ids=policy.eligible_document_ids,retrieval_policy_json=policy.model_dump(),hard_filters_json=policy.qdrant_filter().model_dump(mode='json',exclude_none=True),scope_partial=working.scope_partial)
             resolved=self.resolver.build(message,updated,history,reference,working)
             from .diagnostic_trace import record
             record('contextual_builder', original_message=message.model_dump(), task_state=updated.model_dump(),
@@ -311,6 +346,7 @@ class ChatSessionService:
             r=self.rag.prepare(data['effective_run_id'],question=resolved.resolved_question,corpus_snapshot=snapshot,
                 point_only=True,rag_pipeline_mode='REWRITE_RERANK',rag_scope='ALL_DOCUMENTS',strategy='structure',
                 context_token_budget=ctx['context_token_budget'])
+            r['correlation_id']=t.turn_id
             r['chat_generation_question']=ctx['generation_question']
             r['chat_generation_base']=ctx['base_question']
             r['chat_input_budget']=ctx['input_budget']
@@ -370,6 +406,8 @@ class ChatSessionService:
             t.status='FAILED';t.grounding_status='ERROR'
             text=str(exc) if isinstance(exc,ChatValidationError) and not hasattr(exc,'errors') else 'Не удалось завершить ответ. Сообщение сохранено; проверьте настройки и повторите.'
             t.trace['error']=text
+            from .failure_diagnostics import capture
+            t.trace['failure']=capture(self.runs,exc,t.turn_id,'/chat',t.trace)
             t.response=ChatResponse(answer_text=text,task_state_version=t.task_state_version,resolved_question=t.resolved_question,status='ERROR')
         return self.finish(t,started)
 
@@ -385,21 +423,27 @@ class ChatSessionService:
         if concepts:
             r['question_text']+='\nСчитай и сравнивай ТОЛЬКО следующие candidate claims по их ID; не расширяй набор. Они не доказательства; каждый заново проверить по документам. В каждом finding normalized_key ОБЯЗАТЕЛЬНО равен одному из этих claim_id (дословно). Не создавай другие категории и не подменяй claim другой обязанностью: '+json.dumps(concepts,ensure_ascii=False)
             r['reference_prior_claims']=concepts
-        r.update(retrieval_policy_json=policy.model_dump(),full_document_context={},status='RUNNING',answer_mode='EXHAUSTIVE_NO_RAG')
+        r.update(retrieval_policy_json=policy.model_dump(),full_document_context={},status='RUNNING',answer_mode='EXHAUSTIVE_NO_RAG',public_consult=True,comparison_requested=t.trace.get('question_intent_json',{}).get('requires_cross_document_comparison',False))
         self.rag.put(r);t.comparison_run_id=r['comparison_run_id']
         def save(record):
             self.rag.put(record)
             progress('full_coverage')
-        ExhaustiveNoRAG(self.runs,self.rag.llm_factory).run(r,self.runs.config.llm,save)
+        config=self.runs.config.llm.model_copy(deep=True);config.exhaustive_max_units_per_batch=32;config.exhaustive_concurrency=2
+        ExhaustiveNoRAG(self.runs,self.rag.llm_factory).run(r,config,save)
+        from .contract_extraction import render_exhaustive_answer
+        reviewed_text,citations=render_exhaustive_answer(r,self.rag.llm_factory,config)
+        r['claims_json']=r.get('exhaustive',{}).get('verified_claims',[]);r['citations_json']=citations
+        t.citations_json=citations;t.trace['claims_json']=r['claims_json']
         coverage=r.get('exhaustive',{})
         success=r.get('full_document_status')=='SUCCESS' and coverage.get('coverage_percent')==100
         r['status']='COMPLETED' if success else 'PARTIAL';self.rag.put(r)
         t.trace['coverage']=coverage;t.trace['exhaustive_error']=r.get('full_document_error_json',{})
+        with self.runs.db() as store:t.trace['canonical_document_scope']=WorkingContextService.canonical_scope(store,r)
         t.status='COMPLETED';t.grounding_status='FULL_COVERAGE' if success else 'PARTIAL'
-        text=r.get('full_document_answer') or 'Полный просмотр не завершён. Проверьте покрытие и диагностику.'
+        text=reviewed_text or 'Полный просмотр не завершён. Проверьте покрытие и диагностику.'
         if not success:text='Неполный просмотр разрешённых документов. '+text
         t.response=ChatResponse(answer_text=text,task_state_version=state.version,resolved_question=t.resolved_question,
-            status='SUCCESS' if success else 'PARTIAL',grounding_result={'coverage':coverage.get('coverage_percent',0),'validation':'EXHAUSTIVE_EVIDENCE'})
+            status='SUCCESS' if success else 'PARTIAL',citations=citations,grounding_result={'coverage':coverage.get('coverage_percent',0),'validation':'EXHAUSTIVE_EVIDENCE'})
         return self.finish(t,started)
 
     def finish(self,t,started):

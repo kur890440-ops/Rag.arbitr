@@ -8,3 +8,7 @@ input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventD
 })();
 
 (()=>{const leave=()=>location.replace('/consult');document.querySelector('#consult-logout').addEventListener('click',async()=>{await fetch('/consult/auth/logout',{method:'POST',headers:{'X-RAG-Request':'1'}});leave();});setInterval(async()=>{try{const r=await fetch('/consult/auth/session');if(r.status===401||r.status===403)leave();}catch(_){}},5000);})();
+
+document.addEventListener('htmx:configRequest', e => { e.detail.headers['X-RAG-Request']='1'; });
+
+document.addEventListener('htmx:beforeRequest', e => { if(e.target.id==='workspace-events' && e.target.contains(document.activeElement))e.preventDefault(); });

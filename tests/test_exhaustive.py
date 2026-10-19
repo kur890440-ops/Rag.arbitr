@@ -22,14 +22,14 @@ class MapLLM:
         if self.hook:self.hook(request)
         if '\nUNITS:\n' in request.question:
             units=json.loads(request.question.split('\nUNITS:\n')[1]);u=units[0]
-            if self.fail_unit==u['unit_id']:return LLMResult(model='fake',error={'code':'TIMEOUT'},request_count=1)
+            if self.fail_unit is not None and self.fail_unit==u.get('unit_id'):return LLMResult(model='fake',error={'code':'TIMEOUT'},request_count=1)
             if self.malformed:
                 self.malformed=False
                 return LLMResult(model='fake',text='malformed',status='SUCCESS',request_count=1)
             source=u.get('text') or u['excerpts'][0]['text']
             irrelevant=source.startswith('irrelevant')
             quote=u['excerpts'][0]['ref'] if 'excerpts' in u else source[-15:]
-            findings=[] if irrelevant else [dict(unit_id=u['unit_id'],normalized_key='category',statement='fact',category='type',**({'evidence_ref':quote} if 'excerpts' in u else {'evidence_text':quote}))]
+            findings=[] if irrelevant else [dict(**({'unit_id':u['unit_id']} if 'unit_id' in u else {}),normalized_key='category',statement='fact',category='type',**({'evidence_ref':quote} if 'excerpts' in u else {'evidence_text':quote}))]
             text=json.dumps(dict(relevant=not irrelevant,findings=findings,limitations=[]))
         elif request.context_type=='grounded_rag':
             fact='Оплата через десять дней.'

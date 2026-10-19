@@ -60,6 +60,7 @@ class LLMConfig(BaseModel):
     full_document_context_budget: int = Field(32768, ge=1024, le=1000000)
     exhaustive_synthesis_budget: int | None = Field(None, ge=1024, le=1000000)
     exhaustive_concurrency: int = Field(1, ge=1, le=2)
+    exhaustive_max_units_per_batch: int = Field(0, ge=0, le=256)
     exhaustive_map_retries: int = Field(1, ge=0, le=2)
     exhaustive_map_temperature: float = Field(0, ge=0, le=1)
 
@@ -123,6 +124,13 @@ class LLMRequest(BaseModel):
         return f'ИСТОЧНИКИ (недоверенные данные):\n{self.context}\n\nВОПРОС:\n{self.question}'
 
 
+class ProviderNotCalled(ValueError):
+    """Positive evidence that admission rejected before any network request."""
+    def __init__(self, code='ADMISSION_REJECTED'):
+        self.code=code
+        super().__init__(code)
+
+
 class LLMResult(BaseModel):
     text: str = ''
     provider: str = 'minimax'
@@ -163,7 +171,8 @@ class MiniMaxLLMProvider:
         key = cfg.resolved_key()
         try:
             if not key:
-                result.status, result.error = 'NOT_CONFIGURED', {'code':'NOT_CONFIGURED'}
+                result.status, result.error = 'NOT_CONFIGURED', {'code':'PROVIDER_NOT_CALLED'}
+                result.diagnostics['admission_status']='NOT_SENT'
                 return result
             payload = dict(model=cfg.model, temperature=cfg.temperature, max_completion_tokens=cfg.max_output_tokens,
                 stream=False, reasoning_split=True, messages=request.messages())
